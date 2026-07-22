@@ -1,0 +1,7 @@
+name = "aicehub-api"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# OPENROUTER_API_KEY는 Cloudflare 대시보드에서 Secret으로 설정하세요
+# Settings > Variables > Environment Variables > Add variable (Encrypt)

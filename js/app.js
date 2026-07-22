@@ -31,8 +31,13 @@
                 .map(tag => `<span class="tag">${tag}</span>`)
                 .join('');
 
+            // 무료 모델: 체험 페이지로, 유료 모델: 외부 링크
+            const actionHtml = model.isFree
+                ? `<a href="pages/chat.html?model=${model.id}" class="btn btn-card">무료 체험하기 →</a>`
+                : `<a href="${model.externalUrl}" target="_blank" class="btn btn-card btn-card-external">공식 사이트 →</a>`;
+
             return `
-                <div class="model-card" data-categories="${model.categories.join(' ')}" data-name="${model.name.toLowerCase()}" data-provider="${model.provider.toLowerCase()}">
+                <div class="model-card ${model.isFree ? '' : 'model-card-paid'}" data-categories="${model.categories.join(' ')}" data-name="${model.name.toLowerCase()}" data-provider="${model.provider.toLowerCase()}" data-free="${model.isFree}">
                     <div class="model-card-header">
                         <div class="model-icon ${model.iconClass}">${model.iconLetter}</div>
                         ${badgeHtml}
@@ -51,7 +56,7 @@
                         </div>
                     </div>
                     <div class="model-tags">${tagsHtml}</div>
-                    <a href="pages/chat.html?model=${model.id}" class="btn btn-card">체험하기 →</a>
+                    ${actionHtml}
                 </div>
             `;
         }).join('');
@@ -117,29 +122,88 @@
         });
     });
 
+    // API call for comparison
+    async function callCompareAPI(modelId, prompt) {
+        const model = FREE_MODELS.find(m => m.id === modelId);
+        if (!model) return { model: modelId, error: '모델을 찾을 수 없습니다.' };
+
+        if (CONFIG.isDemoMode) {
+            await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1500));
+            return {
+                model: model.name,
+                content: `[데모] ${model.name}의 응답 시뮬레이션입니다.\n\nAPI 연결 후 "${prompt}"에 대한 실제 답변을 받을 수 있습니다.`
+            };
+        }
+
+        try {
+            const response = await fetch(CONFIG.API_BASE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model.openrouterId,
+                    messages: [{ role: 'user', content: prompt }]
+                })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error);
+
+            return { model: model.name, content: data.content };
+        } catch (error) {
+            return { model: model.name, error: error.message };
+        }
+    }
+
     if (compareBtn) {
-        compareBtn.addEventListener('click', () => {
+        compareBtn.addEventListener('click', async () => {
             const prompt = compareInput.value.trim();
             if (!prompt) {
                 alert('비교할 프롬프트를 입력해주세요.');
                 return;
             }
 
-            const selectedModels = document.querySelectorAll('.compare-model-chip.selected');
-            if (selectedModels.length < 2) {
+            const selectedChips = document.querySelectorAll('.compare-model-chip.selected');
+            if (selectedChips.length < 2) {
                 alert('최소 2개의 모델을 선택해주세요.');
                 return;
             }
 
-            // Show demo response
+            // 로딩 상태
+            compareBtn.disabled = true;
+            compareBtn.textContent = '비교 중...';
             compareResults.classList.add('multi');
-            compareResults.innerHTML = Array.from(selectedModels).map(chip => `
+            compareResults.innerHTML = Array.from(selectedChips).map(chip => `
                 <div class="compare-result-card">
                     <h4>${chip.textContent}</h4>
-                    <p>⏳ API 연결 후 실제 응답을 받을 수 있습니다.\n\n현재 데모 모드: OpenRouter API 키를 설정하면 실시간 비교가 가능합니다.</p>
+                    <div class="typing-indicator"><span></span><span></span><span></span></div>
                 </div>
             `).join('');
+
+            // 병렬 API 호출
+            const modelIds = Array.from(selectedChips).map(chip => chip.dataset.model);
+            const results = await Promise.all(
+                modelIds.map(id => callCompareAPI(id, prompt))
+            );
+
+            // 결과 표시
+            compareResults.innerHTML = results.map(result => `
+                <div class="compare-result-card">
+                    <h4>${result.model}</h4>
+                    <p>${result.error ? `❌ ${result.error}` : formatCompareContent(result.content)}</p>
+                </div>
+            `).join('');
+
+            compareBtn.disabled = false;
+            compareBtn.textContent = '비교하기';
         });
+    }
+
+    function formatCompareContent(content) {
+        return content
+            .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
     }
 
     // ===== Header Scroll Effect =====

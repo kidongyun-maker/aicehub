@@ -212,6 +212,33 @@ body {
     border-color: var(--accent);
 }
 
+.btn-card-external {
+    color: var(--text-secondary);
+}
+
+.btn-card-external:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+}
+
+.model-card-paid {
+    opacity: 0.8;
+}
+
+.model-card-paid:hover {
+    opacity: 1;
+}
+
+.demo-notice {
+    font-size: 0.85rem;
+    color: var(--warning);
+    margin-top: 8px;
+    padding: 8px 16px;
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: var(--radius-sm);
+}
+
 /* ===== Hero ===== */
 .hero {
     position: relative;
@@ -460,6 +487,8 @@ body {
 .model-icon-meta { background: linear-gradient(135deg, #0668e1, #1877f2); }
 .model-icon-mistral { background: linear-gradient(135deg, #f97316, #ea580c); }
 .model-icon-cohere { background: linear-gradient(135deg, #39d353, #2ea043); }
+.model-icon-microsoft { background: linear-gradient(135deg, #00bcf2, #0078d4); }
+.model-icon-qwen { background: linear-gradient(135deg, #6f42c1, #5a32a3); }
 
 .model-badge {
     padding: 4px 10px;
@@ -668,6 +697,42 @@ body {
     color: var(--text-secondary);
     line-height: 1.6;
     white-space: pre-wrap;
+}
+
+.compare-result-card pre {
+    background: var(--bg-primary);
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 0.85rem;
+}
+
+.compare-result-card code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+}
+
+.compare-result-card .typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 8px 0;
+}
+
+.compare-result-card .typing-indicator span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: typing 1.2s ease-in-out infinite;
+}
+
+.compare-result-card .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.compare-result-card .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-4px); opacity: 1; }
 }
 
 /* ===== CTA Section ===== */
