@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 체험 존 - AICE Hub</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="../css/chat.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header" id="header">
+        <div class="container">
+            <div class="header-inner">
+                <a href="../index.html" class="logo">
+                    <span class="logo-icon">◆</span>
+                    <span class="logo-text">AICE Hub</span>
+                </a>
+                <nav class="nav" id="nav">
+                    <a href="../index.html#models" class="nav-link">Models</a>
+                    <a href="../index.html#compare" class="nav-link">Compare</a>
+                    <a href="chat.html" class="nav-link active">Chat</a>
+                </nav>
+                <div class="header-actions">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="메뉴 열기">
+                        <span></span><span></span><span></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Chat Interface -->
+    <main class="chat-page">
+        <!-- Model Selector Sidebar -->
+        <aside class="chat-sidebar" id="chatSidebar">
+            <h3 class="sidebar-title">모델 선택</h3>
+            <div class="sidebar-models" id="sidebarModels">
+                <!-- Rendered by JS -->
+            </div>
+        </aside>
+
+        <!-- Chat Area -->
+        <div class="chat-main">
+            <div class="chat-header">
+                <div class="chat-model-info" id="chatModelInfo">
+                    <div class="model-icon model-icon-openai">G</div>
+                    <div>
+                        <h3>GPT-4o</h3>
+                        <span>OpenAI</span>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-secondary" id="clearChatBtn">대화 초기화</button>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-welcome">
+                    <h2>AI와 대화를 시작하세요</h2>
+                    <p>왼쪽에서 모델을 선택하고, 아래에 메시지를 입력해보세요.</p>
+                    <div class="chat-examples">
+                        <button class="example-btn">"한국의 수도는 어디인가요?"</button>
+                        <button class="example-btn">"피보나치 함수를 파이썬으로 작성해줘"</button>
+                        <button class="example-btn">"이 코드를 리팩토링해줘"</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="chat-input-wrapper">
+                    <textarea class="chat-input" id="chatInput" placeholder="메시지를 입력하세요..." rows="1"></textarea>
+                    <button class="chat-send-btn" id="chatSendBtn" aria-label="전송">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13"></path>
+                            <path d="M22 2L15 22L11 13L2 9L22 2Z"></path>
+                        </svg>
+                    </button>
+                </div>
+                <p class="chat-disclaimer">AI 응답은 부정확할 수 있습니다. 중요한 정보는 반드시 확인하세요.</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="../js/models.js"></script>
+    <script src="../js/chat.js"></script>
+</body>
+</html>

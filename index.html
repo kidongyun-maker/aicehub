@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AICE Hub - 모든 AI를 한 곳에서 체험하세요</title>
+    <meta name="description" content="GPT-4o, Claude, Gemini, Llama, Mistral 등 100+ AI 모델을 한 곳에서 비교하고 체험하세요.">
+    <meta name="keywords" content="AI, ChatGPT, Claude, Gemini, Llama, Mistral, AI 비교, AI 체험">
+    <meta property="og:title" content="AICE Hub - 모든 AI를 한 곳에서">
+    <meta property="og:description" content="100+ AI 모델을 비교하고 체험하세요">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://aicehub.com">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header" id="header">
+        <div class="container">
+            <div class="header-inner">
+                <a href="/" class="logo">
+                    <span class="logo-icon">◆</span>
+                    <span class="logo-text">AICE Hub</span>
+                </a>
+                <nav class="nav" id="nav">
+                    <a href="#models" class="nav-link">Models</a>
+                    <a href="#compare" class="nav-link">Compare</a>
+                    <a href="pages/chat.html" class="nav-link">Chat</a>
+                </nav>
+                <div class="header-actions">
+                    <a href="pages/chat.html" class="btn btn-primary">무료 체험</a>
+                    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="메뉴 열기">
+                        <span></span><span></span><span></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">🚀 100+ AI 모델 지원</div>
+                <h1 class="hero-title">
+                    모든 AI를<br>
+                    <span class="gradient-text">한 곳에서</span> 체험하세요
+                </h1>
+                <p class="hero-description">
+                    GPT-4o, Claude, Gemini, Llama, Mistral 등<br>
+                    최신 AI 모델을 로그인 없이 바로 비교하고 체험해보세요.
+                </p>
+                <div class="hero-actions">
+                    <a href="#models" class="btn btn-primary btn-lg">모델 둘러보기</a>
+                    <a href="#compare" class="btn btn-secondary btn-lg">비교 모드</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <span class="stat-value">100+</span>
+                        <span class="stat-label">AI 모델</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">6</span>
+                        <span class="stat-label">제공사</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">무료</span>
+                        <span class="stat-label">체험</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="hero-glow"></div>
+    </section>
+
+    <!-- Models Section -->
+    <section class="models" id="models">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">AI 모델 라인업</h2>
+                <p class="section-description">각 모델의 특성을 확인하고, 원하는 모델을 바로 체험해보세요.</p>
+            </div>
+
+            <!-- Search -->
+            <div class="search-bar">
+                <input type="text" class="search-input" id="searchInput" placeholder="모델 이름이나 키워드로 검색...">
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="filter-tabs" id="filterTabs">
+                <button class="filter-tab active" data-filter="all">전체</button>
+                <button class="filter-tab" data-filter="chat">대화</button>
+                <button class="filter-tab" data-filter="code">코딩</button>
+                <button class="filter-tab" data-filter="image">이미지</button>
+                <button class="filter-tab" data-filter="reasoning">추론</button>
+            </div>
+
+            <!-- Model Cards Grid -->
+            <div class="model-grid" id="modelGrid">
+                <!-- Cards rendered by JS -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Compare Section -->
+    <section class="compare" id="compare">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">모델 비교</h2>
+                <p class="section-description">같은 질문을 여러 모델에 동시에 보내 답변을 비교해보세요.</p>
+            </div>
+            <div class="compare-container">
+                <div class="compare-input-area">
+                    <textarea class="compare-textarea" id="compareInput" placeholder="비교할 프롬프트를 입력하세요..." rows="3"></textarea>
+                    <div class="compare-model-select">
+                        <div class="compare-model-chip selected" data-model="gpt-4o">GPT-4o</div>
+                        <div class="compare-model-chip selected" data-model="claude-3.5-sonnet">Claude 3.5</div>
+                        <div class="compare-model-chip" data-model="gemini-1.5-pro">Gemini 1.5</div>
+                        <div class="compare-model-chip" data-model="llama-3.1-405b">Llama 3.1</div>
+                    </div>
+                    <button class="btn btn-primary btn-lg compare-btn" id="compareBtn">비교하기</button>
+                </div>
+                <div class="compare-results" id="compareResults">
+                    <div class="compare-placeholder">
+                        <span class="compare-icon">⚡</span>
+                        <p>프롬프트를 입력하고 모델을 선택한 뒤<br>"비교하기"를 클릭하세요</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="container">
+            <div class="cta-content">
+                <h2 class="cta-title">지금 바로 AI를 체험해보세요</h2>
+                <p class="cta-description">로그인 없이, 무료로, 바로 시작할 수 있습니다.</p>
+                <a href="pages/chat.html" class="btn btn-primary btn-lg">채팅 시작하기 →</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-inner">
+                <div class="footer-brand">
+                    <a href="/" class="logo">
+                        <span class="logo-icon">◆</span>
+                        <span class="logo-text">AICE Hub</span>
+                    </a>
+                    <p class="footer-tagline">모든 AI를 한 곳에서</p>
+                </div>
+                <div class="footer-links">
+                    <a href="#">이용약관</a>
+                    <a href="#">개인정보처리방침</a>
+                    <a href="https://github.com/kidongyun-maker/aicehub" target="_blank">GitHub</a>
+                </div>
+                <p class="footer-copyright">&copy; 2024 AICE Hub. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/models.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

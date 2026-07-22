@@ -1,0 +1,148 @@
+/**
+ * AI Model Data
+ */
+const AI_MODELS = [
+    {
+        id: 'gpt-4o',
+        name: 'GPT-4o',
+        provider: 'OpenAI',
+        iconClass: 'model-icon-openai',
+        iconLetter: 'G',
+        badge: { text: '인기', class: 'model-badge-popular' },
+        description: '가장 강력한 멀티모달 모델. 텍스트, 이미지, 음성을 모두 이해하고 생성합니다.',
+        specs: { context: '128K', speed: '빠름' },
+        tags: ['대화', '코딩', '추론'],
+        categories: ['chat', 'code', 'reasoning'],
+        openrouterId: 'openai/gpt-4o'
+    },
+    {
+        id: 'gpt-4o-mini',
+        name: 'GPT-4o Mini',
+        provider: 'OpenAI',
+        iconClass: 'model-icon-openai',
+        iconLetter: 'G',
+        badge: { text: '가성비', class: 'model-badge-free' },
+        description: 'GPT-4o의 경량 버전. 빠르고 저렴하면서도 높은 성능을 유지합니다.',
+        specs: { context: '128K', speed: '매우 빠름' },
+        tags: ['대화', '코딩', '가성비'],
+        categories: ['chat', 'code'],
+        openrouterId: 'openai/gpt-4o-mini'
+    },
+    {
+        id: 'claude-3.5-sonnet',
+        name: 'Claude 3.5 Sonnet',
+        provider: 'Anthropic',
+        iconClass: 'model-icon-anthropic',
+        iconLetter: 'C',
+        badge: { text: 'NEW', class: 'model-badge-new' },
+        description: '뛰어난 코딩 능력과 긴 문맥 이해. 안전하고 정확한 답변을 제공합니다.',
+        specs: { context: '200K', speed: '빠름' },
+        tags: ['대화', '코딩', '분석'],
+        categories: ['chat', 'code', 'reasoning'],
+        openrouterId: 'anthropic/claude-3.5-sonnet'
+    },
+    {
+        id: 'claude-3-haiku',
+        name: 'Claude 3 Haiku',
+        provider: 'Anthropic',
+        iconClass: 'model-icon-anthropic',
+        iconLetter: 'C',
+        badge: null,
+        description: '빠르고 간결한 응답에 최적화. 간단한 작업에 효율적입니다.',
+        specs: { context: '200K', speed: '매우 빠름' },
+        tags: ['대화', '요약', '빠름'],
+        categories: ['chat'],
+        openrouterId: 'anthropic/claude-3-haiku'
+    },
+    {
+        id: 'gemini-1.5-pro',
+        name: 'Gemini 1.5 Pro',
+        provider: 'Google',
+        iconClass: 'model-icon-google',
+        iconLetter: 'G',
+        badge: null,
+        description: '100만 토큰 컨텍스트 윈도우. 긴 문서와 영상 분석에 탁월합니다.',
+        specs: { context: '1M', speed: '보통' },
+        tags: ['대화', '분석', '멀티모달'],
+        categories: ['chat', 'reasoning', 'image'],
+        openrouterId: 'google/gemini-pro-1.5'
+    },
+    {
+        id: 'gemini-1.5-flash',
+        name: 'Gemini 1.5 Flash',
+        provider: 'Google',
+        iconClass: 'model-icon-google',
+        iconLetter: 'G',
+        badge: { text: '무료', class: 'model-badge-free' },
+        description: '빠른 응답 속도와 효율적인 처리. 일상적인 작업에 적합합니다.',
+        specs: { context: '1M', speed: '매우 빠름' },
+        tags: ['대화', '빠름', '효율'],
+        categories: ['chat'],
+        openrouterId: 'google/gemini-flash-1.5'
+    },
+    {
+        id: 'llama-3.1-405b',
+        name: 'Llama 3.1 405B',
+        provider: 'Meta',
+        iconClass: 'model-icon-meta',
+        iconLetter: 'L',
+        badge: { text: '오픈소스', class: 'model-badge-free' },
+        description: '오픈소스 최강 모델. 상업적 사용 가능하며 GPT-4급 성능을 보입니다.',
+        specs: { context: '128K', speed: '보통' },
+        tags: ['오픈소스', '대화', '코딩'],
+        categories: ['chat', 'code', 'reasoning'],
+        openrouterId: 'meta-llama/llama-3.1-405b-instruct'
+    },
+    {
+        id: 'llama-3.1-70b',
+        name: 'Llama 3.1 70B',
+        provider: 'Meta',
+        iconClass: 'model-icon-meta',
+        iconLetter: 'L',
+        badge: null,
+        description: '균형 잡힌 오픈소스 모델. 성능과 속도의 최적 밸런스를 제공합니다.',
+        specs: { context: '128K', speed: '빠름' },
+        tags: ['오픈소스', '대화', '효율'],
+        categories: ['chat', 'code'],
+        openrouterId: 'meta-llama/llama-3.1-70b-instruct'
+    },
+    {
+        id: 'mistral-large',
+        name: 'Mistral Large',
+        provider: 'Mistral AI',
+        iconClass: 'model-icon-mistral',
+        iconLetter: 'M',
+        badge: null,
+        description: '유럽 최고의 AI. 다국어 지원이 뛰어나며 효율적인 추론이 가능합니다.',
+        specs: { context: '128K', speed: '빠름' },
+        tags: ['다국어', '코딩', '추론'],
+        categories: ['chat', 'code', 'reasoning'],
+        openrouterId: 'mistralai/mistral-large'
+    },
+    {
+        id: 'mixtral-8x7b',
+        name: 'Mixtral 8x7B',
+        provider: 'Mistral AI',
+        iconClass: 'model-icon-mistral',
+        iconLetter: 'M',
+        badge: { text: '무료', class: 'model-badge-free' },
+        description: 'MoE 아키텍처 기반. 빠르면서도 다양한 작업을 소화합니다.',
+        specs: { context: '32K', speed: '빠름' },
+        tags: ['오픈소스', '효율', '다국어'],
+        categories: ['chat', 'code'],
+        openrouterId: 'mistralai/mixtral-8x7b-instruct'
+    },
+    {
+        id: 'command-r-plus',
+        name: 'Command R+',
+        provider: 'Cohere',
+        iconClass: 'model-icon-cohere',
+        iconLetter: 'C',
+        badge: null,
+        description: 'RAG 특화 모델. 문서 검색과 요약, 비즈니스 활용에 최적화되어 있습니다.',
+        specs: { context: '128K', speed: '빠름' },
+        tags: ['RAG', '비즈니스', '요약'],
+        categories: ['chat', 'reasoning'],
+        openrouterId: 'cohere/command-r-plus'
+    }
+];
