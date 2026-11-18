@@ -1,0 +1,195 @@
+-- 단어 암기장 - Supabase 스키마
+-- Supabase 대시보드 > SQL Editor 에 전체를 붙여넣고 Run 하세요. 여러 번 실행해도 안전합니다.
+
+-- ---------- 사용자 프로필 ----------
+-- 로그인 계정: u9585@example.com (학생), u5238@example.com (부모)
+create table if not exists public.profiles (
+  id   uuid primary key references auth.users on delete cascade,
+  code text unique not null,
+  role text not null check (role in ('student', 'parent')),
+  name text not null
+);
+
+create or replace function public.profile_from_email(p_email text)
+returns table (code text, role text, name text)
+language sql immutable as $$
+  select c, case c when '5238' then 'parent' else 'student' end, case c when '5238' then '부모' else '학생' end
+  from (select substring(p_email from '^u(9585|5238)@') as c) s
+  where c is not null
+$$;
+
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, code, role, name)
+  select new.id, p.code, p.role, p.name from public.profile_from_email(new.email) p
+  on conflict (id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- 스키마보다 먼저 만든 계정도 프로필 연결
+insert into public.profiles (id, code, role, name)
+select u.id, p.code, p.role, p.name
+from auth.users u cross join lateral public.profile_from_email(u.email) p
+on conflict (id) do nothing;
+
+create or replace function public.my_code()
+returns text language sql stable security definer set search_path = public as $$
+  select code from public.profiles where id = auth.uid()
+$$;
+
+create or replace function public.is_parent()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select role = 'parent' from public.profiles where id = auth.uid()), false)
+$$;
+
+-- ---------- 단어장 ----------
+create table if not exists public.word_sets (
+  id         uuid primary key default gen_random_uuid(),
+  title      text not null check (char_length(title) between 1 and 60),
+  words      jsonb not null,                 -- [{id, word, meaning}]
+  has_image  boolean not null default false,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+
+-- ---------- 1단계 암기 완료 ----------
+create table if not exists public.learned (
+  set_id     uuid not null references public.word_sets on delete cascade,
+  user_code  text not null,
+  done_at    timestamptz not null default now(),
+  word_count int,
+  primary key (set_id, user_code)
+);
+
+-- ---------- 시험 결과 ----------
+create table if not exists public.attempts (
+  id        uuid primary key default gen_random_uuid(),
+  set_id    uuid not null references public.word_sets on delete cascade,
+  user_code text not null,
+  step      text not null check (step in ('quiz', 'spell', 'final')),
+  mode      text not null check (mode in ('full', 'retry')),
+  at        timestamptz not null default now(),
+  total     int not null,
+  correct   int not null,
+  accuracy  int not null,
+  passed    boolean,
+  items     jsonb not null
+);
+create index if not exists attempts_user_set on public.attempts (user_code, set_id, at);
+
+-- ---------- 권한 (RLS) ----------
+alter table public.profiles  enable row level security;
+alter table public.word_sets enable row level security;
+alter table public.learned   enable row level security;
+alter table public.attempts  enable row level security;
+
+drop policy if exists profiles_read on public.profiles;
+create policy profiles_read on public.profiles for select to authenticated using (true);
+
+-- 단어장: 로그인한 사용자 모두 보기/만들기/수정, 삭제는 올린 사람 또는 부모
+drop policy if exists sets_read on public.word_sets;
+drop policy if exists sets_insert on public.word_sets;
+drop policy if exists sets_update on public.word_sets;
+drop policy if exists sets_delete on public.word_sets;
+create policy sets_read   on public.word_sets for select to authenticated using (my_code() is not null);
+create policy sets_insert on public.word_sets for insert to authenticated with check (created_by = my_code());
+create policy sets_update on public.word_sets for update to authenticated using (my_code() is not null);
+create policy sets_delete on public.word_sets for delete to authenticated using (created_by = my_code() or is_parent());
+
+-- 학습 기록: 본인 것만 쓰기, 보기는 본인 또는 부모
+drop policy if exists learned_read on public.learned;
+drop policy if exists learned_write on public.learned;
+drop policy if exists learned_update on public.learned;
+create policy learned_read   on public.learned for select to authenticated using (user_code = my_code() or is_parent());
+create policy learned_write  on public.learned for insert to authenticated with check (user_code = my_code());
+create policy learned_update on public.learned for update to authenticated using (user_code = my_code());
+
+-- 시험 결과: 직접 insert 불가 (submit_attempt 함수로만 채점·저장), 보기는 본인 또는 부모
+drop policy if exists attempts_read on public.attempts;
+create policy attempts_read on public.attempts for select to authenticated using (user_code = my_code() or is_parent());
+
+-- ---------- 채점 (서버에서 정답 비교) ----------
+create or replace function public.submit_attempt(p_set_id uuid, p_step text, p_mode text, p_answers jsonb)
+returns public.attempts
+language plpgsql security definer set search_path = public as $$
+declare
+  v_code    text := public.my_code();
+  v_set     public.word_sets;
+  v_items   jsonb := '[]'::jsonb;
+  a         jsonb;
+  w         jsonb;
+  v_type    text;
+  v_ans     text;
+  v_ok      boolean;
+  v_total   int := 0;
+  v_correct int := 0;
+  v_full    boolean;
+  v_acc     int;
+  v_row     public.attempts;
+begin
+  if v_code is null then raise exception '로그인이 필요합니다.'; end if;
+  if p_step not in ('quiz', 'spell', 'final') then raise exception '잘못된 단계입니다.'; end if;
+  select * into v_set from public.word_sets where id = p_set_id;
+  if not found then raise exception '단어장을 찾을 수 없습니다.'; end if;
+
+  for a in select * from jsonb_array_elements(coalesce(p_answers, '[]'::jsonb)) loop
+    w := null;
+    select x into w from jsonb_array_elements(v_set.words) x where x->>'id' = a->>'wordId' limit 1;
+    continue when w is null;
+    v_type := case when a->>'type' = 'spell' then 'spell' else 'meaning' end;
+    v_ans  := left(coalesce(a->>'answer', ''), 200);
+    if v_type = 'spell' then
+      v_ok := lower(regexp_replace(trim(v_ans), '\s+', ' ', 'g')) = lower(regexp_replace(trim(w->>'word'), '\s+', ' ', 'g'));
+    else
+      v_ok := trim(v_ans) = w->>'meaning';
+    end if;
+    v_items := v_items || jsonb_build_object(
+      'wordId', w->>'id', 'word', w->>'word', 'meaning', w->>'meaning',
+      'type', v_type, 'answer', v_ans, 'correct', v_ok);
+    v_total := v_total + 1;
+    if v_ok then v_correct := v_correct + 1; end if;
+  end loop;
+
+  if v_total = 0 then raise exception '제출된 답이 없습니다.'; end if;
+  v_full := coalesce(p_mode, 'full') <> 'retry' and v_total >= jsonb_array_length(v_set.words);
+  v_acc  := round(v_correct * 100.0 / v_total);
+
+  insert into public.attempts (set_id, user_code, step, mode, total, correct, accuracy, passed, items)
+  values (p_set_id, v_code, p_step, case when v_full then 'full' else 'retry' end,
+          v_total, v_correct, v_acc,
+          case when p_step = 'final' and v_full then v_acc >= 80 end,  -- 통과 기준 80%
+          v_items)
+  returning * into v_row;
+  return v_row;
+end $$;
+
+revoke all on function public.submit_attempt(uuid, text, text, jsonb) from public, anon;
+grant execute on function public.submit_attempt(uuid, text, text, jsonb) to authenticated;
+
+-- ---------- 사진 저장소 ----------
+insert into storage.buckets (id, name, public)
+values ('photos', 'photos', false)
+on conflict (id) do nothing;
+
+drop policy if exists photos_read on storage.objects;
+drop policy if exists photos_insert on storage.objects;
+drop policy if exists photos_delete on storage.objects;
+create policy photos_read   on storage.objects for select to authenticated using (bucket_id = 'photos' and public.my_code() is not null);
+create policy photos_insert on storage.objects for insert to authenticated with check (bucket_id = 'photos' and public.my_code() is not null);
+create policy photos_delete on storage.objects for delete to authenticated using (bucket_id = 'photos' and public.my_code() is not null);
+
+-- ---------- 테이블 접근 권한 (새 Supabase 프로젝트는 자동으로 주지 않음) ----------
+-- 실제로 어떤 행을 볼 수 있는지는 위의 RLS 정책이 결정한다.
+grant usage on schema public to authenticated;
+grant select                         on public.profiles  to authenticated;
+grant select, insert, update, delete on public.word_sets to authenticated;
+grant select, insert, update         on public.learned   to authenticated;
+grant select                         on public.attempts  to authenticated;
+grant execute on function public.my_code()   to authenticated;
+grant execute on function public.is_parent() to authenticated;

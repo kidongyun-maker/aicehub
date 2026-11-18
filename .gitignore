@@ -9,6 +9,7 @@ Thumbs.db
 # Dependencies
 node_modules/
 
-# Environment
+# Environment / Supabase CLI
 .env
 .env.local
+supabase/.temp/
