@@ -3,6 +3,7 @@ import * as db from './db.js?v=__V__';
 import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js?v=__V__';
 import { AI_EXTRACT_ENABLED } from './config.js?v=__V__';
 import { voiceSupported, listen, toSpelling } from './voice.js?v=__V__';
+import { loadDict, checkWord } from './spell.js?v=__V__';
 
 const $app = document.getElementById('app');
 const state = { me: null, passRate: 80 };
@@ -365,7 +366,8 @@ function mountEditor(container, words) {
               <td><input type="text" class="word" data-i="${i}" value="${esc(r.word)}" placeholder="영어 단어" autocapitalize="off" autocorrect="off" spellcheck="false"></td>
               <td><input type="text" class="meaning" data-i="${i}" value="${esc(r.meaning)}" placeholder="뜻"></td>
               <td class="del"><button class="btn icon ghost small" data-del="${i}" aria-label="삭제">✕</button></td>
-            </tr>`
+            </tr>
+            <tr class="spell-hint" data-hint="${i}" hidden><td></td><td colspan="3"></td></tr>`
             )
             .join('')}
         </tbody>
@@ -383,6 +385,11 @@ function mountEditor(container, words) {
       input.oninput = () => {
         const r = rows[input.dataset.i];
         r[input.classList.contains('word') ? 'word' : 'meaning'] = input.value;
+        if (input.classList.contains('word')) {
+          r.spellOk = false;
+          clearTimeout(r.spellTimer);
+          r.spellTimer = setTimeout(() => showSpell(Number(input.dataset.i)), 500);
+        }
         if (input.classList.contains('meaning')) {
           r.inferred = false;
           input.closest('tr').classList.remove('inferred', 'missing');
@@ -407,12 +414,51 @@ function mountEditor(container, words) {
       draw();
       toast(`${parsed.length}개 추가했어요.`);
     };
+    rows.forEach((_, i) => showSpell(i));
   };
+
+  // 스펠링 확인: 사전에 없는 단어면 줄 아래에 안내 + 비슷한 단어 추천 (저장은 막지 않는다)
+  const spellOf = (r) => (r.spellOk || !r.word.trim() ? { ok: true } : checkWord(r.word));
+  function showSpell(i) {
+    const r = rows[i];
+    const hint = container.querySelector(`[data-hint="${i}"]`);
+    const input = container.querySelector(`input.word[data-i="${i}"]`);
+    if (!r || !hint || !input) return;
+    const res = spellOf(r);
+    const bad = Boolean(res && !res.ok);
+    input.classList.toggle('spell-warn', bad);
+    hint.hidden = !bad;
+    if (!bad) return;
+    hint.cells[1].innerHTML = `<div class="spell-box">
+      <span>⚠️ 사전에 없는 단어예요${res.suggestion ? '. 혹시' : ''}</span>
+      ${res.suggestion ? `<button class="btn small" data-fix>${esc(res.suggestion)}</button>` : ''}
+      <button class="btn small ghost" data-keep>그대로 둘게요</button></div>`;
+    hint.querySelector('[data-fix]')?.addEventListener('click', () => {
+      r.word = res.suggestion;
+      input.value = res.suggestion;
+      showSpell(i);
+    });
+    hint.querySelector('[data-keep]').onclick = () => {
+      r.spellOk = true;
+      showSpell(i);
+    };
+  }
   draw();
+  loadDict()
+    .then(() => rows.forEach((_, i) => showSpell(i)))
+    .catch(() => {}); // 단어 목록을 못 받아도 편집·저장은 그대로 된다
   return {
+    // 스펠링을 확인해 볼 단어 수 (사전을 아직 못 받았으면 0)
+    spellIssues: () => rows.filter((r) => spellOf(r)?.ok === false).length,
     get: () => rows.map((r) => ({ id: r.id, word: r.word.trim(), meaning: r.meaning.trim() })),
     hasEmpty: () => rows.some((r) => !r.word.trim() !== !r.meaning.trim()),
   };
+}
+
+// 틀린 스펠링을 정답으로 외우지 않도록, 확인 안 한 단어가 있으면 저장 전에 한 번 묻는다
+function confirmSpell(editor) {
+  const n = editor.spellIssues();
+  return !n || confirm(`스펠링을 확인해 볼 단어가 ${n}개 있어요 (⚠️ 표시).\n그래도 저장할까요?`);
 }
 
 const MAX_PHOTOS = 10;
@@ -577,6 +623,7 @@ async function viewNew() {
     const words = editor.get().filter((w) => w.word || w.meaning);
     if (editor.hasEmpty()) return toast('단어와 뜻을 모두 채워 주세요.');
     if (!words.length) return toast('단어를 1개 이상 입력해 주세요.');
+    if (!confirmSpell(editor)) return;
     e.target.disabled = true;
     try {
       const { set } = await db.createSet({
@@ -609,6 +656,7 @@ async function viewEdit({ params: [id], isCurrent }) {
   const editor = mountEditor(document.getElementById('editor'), set.words);
   document.getElementById('save').onclick = async () => {
     if (editor.hasEmpty()) return toast('단어와 뜻을 모두 채워 주세요.');
+    if (!confirmSpell(editor)) return;
     try {
       await db.updateSet(id, {
         title: document.getElementById('title').value,
