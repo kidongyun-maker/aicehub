@@ -1,8 +1,8 @@
 // 단어 암기장 - 단일 페이지 앱 (해시 라우팅, 데이터는 Supabase)
-import * as db from './db.js';
-import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js';
-import { AI_EXTRACT_ENABLED } from './config.js';
-import { voiceSupported, listen, toSpelling } from './voice.js';
+import * as db from './db.js?v=__V__';
+import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js?v=__V__';
+import { AI_EXTRACT_ENABLED } from './config.js?v=__V__';
+import { voiceSupported, listen, toSpelling } from './voice.js?v=__V__';
 
 const $app = document.getElementById('app');
 const state = { me: null, passRate: 80 };
@@ -1059,7 +1059,9 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
           ${voiceSupported ? `<button type="button" class="btn mic" id="mic" aria-label="말로 입력하기">🎤</button>` : ''}
         </div>
-        <div class="small muted" id="voiceNote" style="min-height:20px;margin-top:6px"></div>
+        <div class="small muted" id="voiceNote" style="min-height:20px;margin-top:6px">${
+          voiceSupported ? '' : '이 브라우저는 🎤 음성 입력을 지원하지 않아요. 키보드의 마이크를 쓰거나, 크롬·사파리에서 열어 주세요.'
+        }</div>
         <div class="runner-actions">
           <button type="button" class="btn" id="skip">모르겠어요</button>
           <button type="submit" class="btn primary" id="ok">확인</button>
@@ -1190,7 +1192,27 @@ async function viewResult({ params: [id, attemptId], query, isCurrent }) {
 
 // ---------- 시작 ----------
 
+// 새 버전이 배포됐는데 휴대폰이 예전 화면을 캐시하고 있으면 한 번 새로 불러온다.
+// (GitHub Pages 는 파일을 10분간 캐시한다. __V__ 는 배포할 때 커밋 번호로 바뀐다)
+const APP_VERSION = '__V__';
+async function checkNewVersion() {
+  if (APP_VERSION.startsWith('__')) return; // 로컬 개발
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const { v } = await res.json();
+    if (!v || v === APP_VERSION) return;
+    const key = `reloaded-${v}`;
+    if (sessionStorage.getItem(key)) return; // 무한 새로고침 방지
+    sessionStorage.setItem(key, '1');
+    location.replace(`${location.pathname}?v=${v}${location.hash}`);
+  } catch {
+    /* 오프라인 등 - 무시 */
+  }
+}
+
 (async () => {
+  checkNewVersion();
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkNewVersion());
   try {
     if (!db.configured) {
       $app.innerHTML = `<div class="card empty" style="margin-top:40px">⚙️ Supabase 설정이 필요합니다.<br><span class="small">web/js/config.js 에 SUPABASE_URL 과 SUPABASE_ANON_KEY 를 입력하세요.</span></div>`;

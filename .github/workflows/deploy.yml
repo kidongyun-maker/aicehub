@@ -24,6 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # 캐시 무효화: 파일 주소에 커밋 번호를 붙이고, 앱이 새 버전을 알아챌 수 있게 version.json 을 만든다
+      - name: Stamp version
+        run: |
+          V=${GITHUB_SHA::7}
+          sed -i "s/__V__/$V/g" web/index.html web/js/*.js
+          echo "{\"v\":\"$V\"}" > web/version.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web

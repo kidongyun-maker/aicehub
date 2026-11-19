@@ -1,6 +1,6 @@
 // Supabase 데이터 계층. 화면 코드(app.js)는 이 모듈만 사용한다.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, PASS_RATE } from './config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, PASS_RATE } from './config.js?v=__V__';
 
 export const configured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 const sb = configured ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
