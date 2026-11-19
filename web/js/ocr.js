@@ -36,6 +36,18 @@ function getWorker() {
 // 그래서 주변 밝기와 비교해 흑백을 나눈다(적응형 이진화, Bradley 방식).
 const OCR_SIZE = 2400; // 긴 변 기준 (작으면 키우고, 크면 줄인다)
 
+// 사진의 평균 밝기가 어두우면(검은 바탕) true
+function isDark(img) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, 64, 64);
+  const d = g.getImageData(0, 0, 64, 64).data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+  return sum / (d.length / 4) < 110;
+}
+
 async function preprocess(dataUrl, binarize) {
   const img = await new Promise((resolve, reject) => {
     const i = new Image();
@@ -43,13 +55,14 @@ async function preprocess(dataUrl, binarize) {
     i.onerror = reject;
     i.src = dataUrl;
   });
+  const dark = isDark(img); // 다크 모드 화면 캡처처럼 검은 바탕에 흰 글자면 뒤집는다
   if (!binarize) {
     // 깨끗한 스캔/캡처: 흑백 + 대비만 (원래 크기)
     const c = document.createElement('canvas');
     c.width = img.naturalWidth;
     c.height = img.naturalHeight;
     const g = c.getContext('2d');
-    g.filter = 'grayscale(1) contrast(1.4)';
+    g.filter = `grayscale(1)${dark ? ' invert(1)' : ''} contrast(1.4)`;
     g.drawImage(img, 0, 0);
     return c;
   }
@@ -66,7 +79,10 @@ async function preprocess(dataUrl, binarize) {
   const px = ctx.getImageData(0, 0, w, h);
   const d = px.data;
   const gray = new Uint8ClampedArray(w * h);
-  for (let i = 0, j = 0; j < gray.length; i += 4, j++) gray[j] = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+  for (let i = 0, j = 0; j < gray.length; i += 4, j++) {
+    const v = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+    gray[j] = dark ? 255 - v : v;
+  }
 
   // 적분 영상으로 주변 평균 밝기를 빠르게 구한다 (최대 255×2400×3200 < 2^32)
   const integral = new Uint32Array((w + 1) * (h + 1));
@@ -151,7 +167,6 @@ export async function recognizeWords(dataUrl, onProgress = () => {}) {
     pass = '그림자 보정 후 다시 읽는 중';
     const clean = await preprocess(dataUrl, true);
     result = mergeResults(result, await read(clean, '4'));
-    if (complete(result)) return result;
     // 3차: 한 덩어리로 읽기(psm 6) - 표를 행 단위로 읽어 단어-뜻 짝이 잘 맞는다
     pass = '표 형식으로 한 번 더 읽는 중';
     return mergeResults(result, await read(clean, '6'));
@@ -166,8 +181,14 @@ function mergeResults(cur, next) {
   const filled = (list) => list.filter((w) => w.meaning).length;
   const [base, other] = filled(next) >= filled(cur) * 1.25 + 1 ? [next, cur] : [cur, next];
   const byWord = new Map(other.map((w) => [w.word.toLowerCase(), w]));
-  const merged = base.map((w) => (w.meaning ? w : { ...w, meaning: byWord.get(w.word.toLowerCase())?.meaning || '' }));
-  if (merged.every((w) => w.meaning)) return merged; // 기준이 완전하면 다른 쪽 단어는 더하지 않는다
+  const squash = (m) => m.replace(/\s/g, '');
+  const merged = base.map((w) => {
+    const alt = byWord.get(w.word.toLowerCase())?.meaning || '';
+    if (!w.meaning) return { ...w, meaning: alt };
+    // 한쪽이 줄바꿈 때문에 뜻 뒷부분이 잘린 경우("전자의, 전자 장비와" vs "... 관련된") 긴 쪽을 쓴다
+    if (alt && squash(alt).length > squash(w.meaning).length && squash(alt).startsWith(squash(w.meaning))) return { ...w, meaning: alt };
+    return w;
+  });
   // 기준 쪽이 놓친 단어 중, 다른 쪽에서 뜻까지 찾은 것만 넣는다 (잡음 단어 방지).
   // 기준 쪽에 잡음이 붙어 뜻 없이 남은 같은 단어("ancient Doel")가 있으면 그 자리를 바꾼다.
   // 같은 뜻이 이미 있으면 잘린 단어 조각("knowledge"→"ledge")이므로 넣지 않는다.
@@ -213,15 +234,47 @@ function cleanMeaning(m) {
 }
 
 // 한 줄을 [영어 덩어리, 한글 덩어리, ...] 순서로 나눈다.
-const SEGMENT = /([A-Za-z][A-Za-z'’\- ]*[A-Za-z]|[A-Za-z])|([가-힣][가-힣0-9\s,~()·./;-]*)/g;
+const SEGMENT = /([A-Za-z][A-Za-z'’\- ]*[A-Za-z]|[A-Za-z])|((?:[~(][~()\s]*)?[가-힣][가-힣0-9\s,~()·./;-]*)/g;
 // 단어장 제목 줄 (Lesson 3, Unit 5, Day 1 Words ...)
 const HEADER = /^(lesson|unit|day|chapter|part|week|test|quiz|review|vocabulary|words?|word list)\b/i;
 
 function validWord(w) {
   if (w.length < 2 && !/^[aI]$/.test(w)) return false;
   if (/^[A-Z]{2,4}$/.test(w)) return false; // 한글을 잘못 읽은 대문자 잡음 (EEC, RYH ...)
-  if (w.split(' ').length > 4) return false; // 영어 문장(예문)
+  if (w.split(' ').length > 6) return false; // 영어 문장(예문)
   return !HEADER.test(w);
+}
+
+// 붙어서 읽힌 관사 띄우기: "asudden" → "a sudden", "once ina while" → "in a"
+const GLUED = [[/\b(in|of|as|on|at|for|with|such|what|once|half)a\b/g, '$1 a'], [/\ba(sudden|while|lot|few|little|bit|kind|sort|great|moment|hurry|row|matter)\b/g, 'a $1']];
+
+const TWO_LETTER = new Set('am an as at be by do go he if in is it me my no of oh ok on or ox so to up us we'.split(' '));
+
+// 인식 잡음 정리 (화면 캡처의 버튼·안내 문구, 한글을 영어로 잘못 읽은 대문자 덩어리 등)
+function dropNoise(list) {
+  const lowerMajority = list.filter((w) => /^[a-z]/.test(w.word)).length >= list.length * 0.6;
+  const out = [];
+  for (const w of list) {
+    let word = w.word;
+    for (const [re, to] of GLUED) word = word.replace(re, to);
+    // 대소문자가 뒤섞인 조각(aH, dH)은 한글을 잘못 읽은 잡음
+    word = word.split(' ').filter((t) => !/[a-z][A-Z]/.test(t)).join(' ');
+    if (!/[aeiouy]/i.test(word)) continue; // 모음이 없으면 단어가 아님 (rr, wn ...)
+    if (/^[a-z]{2}$/i.test(word) && !TWO_LETTER.has(word.toLowerCase())) continue; // ay, wr ...
+    if (/^(번호|단어|뜻|의미|품사|발음)$/.test(w.meaning)) continue; // 표 제목 줄
+    if (lowerMajority) {
+      if (/^[A-Z]\S*$/.test(word)) continue; // 소문자 단어장 속 대문자로 시작하는 한 단어 = 화면 문구 (Claude ...)
+      const caps = /\b[A-Z]{2,}\b|\b[A-Z][a-z]?\b/;
+      if (caps.test(word)) {
+        if (!w.meaning) continue; // 대문자 잡음이 섞였는데 뜻도 없으면 버린다 (PAV R, TT oa til ...)
+        // 뜻은 읽혔으면 대문자 잡음 조각만 떼어 낸다 ("cell MIZE" → "cell", "BN all the way" → "all the way")
+        word = word.split(' ').filter((t) => !/^[A-Z]{2,}$|^[A-Z][a-z]?$/.test(t) || t === 'I').join(' ');
+        if (!/^[a-z]/.test(word)) continue;
+      }
+    }
+    out.push({ ...w, word });
+  }
+  return out;
 }
 
 export function parseWords(text) {
@@ -229,6 +282,7 @@ export function parseWords(text) {
   // 영어만 있는 줄들을 모아 두었다가, 뒤이어 나오는 한글만 있는 줄과 순서대로 짝짓는다.
   // (word↵뜻↵ 처럼 번갈아 나오는 경우와, 표를 열 단위로 읽어 영어 열 → 한글 열 순서로 나오는 경우 모두 처리)
   const pending = [];
+  const koLines = [];
   let pairedFrom = -1; // pending 중 짝을 찾기 시작한 위치
   const flush = () => {
     for (const p of pending) out.push(p);
@@ -250,11 +304,14 @@ export function parseWords(text) {
 
     // 한글만 있는 줄: 바로 윗줄의 영어 단어와 짝
     if (segs.every((s) => s.ko)) {
+      const text = segs.map((s) => s.ko).join(' ');
       const next = pending.find((p) => !p.meaning);
       if (next) {
-        next.meaning = segs.map((s) => s.ko).join(' ');
+        next.meaning = text;
         pairedFrom = 0;
+        continue;
       }
+      koLines.push(text); // 짝 없는 한글 줄: 잘린 뜻의 전체일 수 있어 마지막에 비교한다
       continue;
     }
 
@@ -278,12 +335,59 @@ export function parseWords(text) {
   }
   flush();
 
+  // 줄바꿈 때문에 뒷부분이 잘린 뜻("전자의, 전자 장비와")은, 따로 읽힌 전체 줄("... 관련된")로 바꾼다
+  const sq = (m) => m.replace(/\s/g, '');
+  for (const w of out) {
+    if (!w.meaning) continue;
+    const full = koLines.find((t) => sq(t).length > sq(w.meaning).length && sq(t).startsWith(sq(w.meaning)));
+    if (full) w.meaning = full;
+  }
+
   // 같은 단어 중복 제거
   const seen = new Set();
-  return out.filter((w) => {
+  return dropNoise(out).filter((w) => {
     const key = w.word.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * 여러 장에서 읽은 단어 목록을 하나로 합친다.
+ * 화면 캡처를 이어 찍으면 앞 장 끝 줄이 다음 장 첫 줄에 또 나오므로 같은 단어는 하나만 남긴다.
+ * 사진 맨 위 줄은 반쯤 잘려 잘못 읽히기 쉬워서, 같은 단어가 다른 사진 가운데에도 있으면 그쪽을 쓴다.
+ * lists[0] 은 지금 표의 단어이고, edgeWords 는 그중 예전에 사진 첫 줄에서 읽었던 단어다.
+ * 그 밖에는 뜻이 있는 쪽, 더 긴 쪽을 쓴다.
+ */
+export const EDGE_ROWS = 2; // 사진 맨 위 몇 줄을 "잘렸을 수 있는 줄"로 볼지
+
+export function mergePages(lists, edgeWords = new Set()) {
+  const out = [];
+  const edge = []; // out[i] 가 어떤 사진의 첫 줄에서 왔는지
+  const index = new Map();
+  lists.forEach((list, page) =>
+    list.forEach((w, row) => {
+      const key = w.word.toLowerCase();
+      // 사진 첫 줄이거나, 첫 장(=지금 표)에 있는 단어 중 예전에 사진 첫 줄에서 읽었던 것
+      const isEdge = page > 0 ? row < EDGE_ROWS : edgeWords.has(key);
+      // 끝 글자만 잘못 읽은 같은 단어("make eye contact witn")도 같은 단어로 본다
+      const near = key.length >= 6 ? [...index.keys()].find((k) => k.length === key.length && k.slice(0, -1) === key.slice(0, -1)) : null;
+      const at = index.get(key) ?? (near ? index.get(near) : undefined);
+      if (at === undefined) {
+        index.set(key, out.length);
+        out.push({ ...w });
+        edge.push(isEdge);
+      } else if (edge[at] && !isEdge && w.meaning) {
+        out[at] = { ...w };
+        edge[at] = false;
+        index.set(key, at);
+      } else if ((w.meaning || '').length > (out[at].meaning || '').length) {
+        // 뜻을 더 온전히 읽은 쪽이 철자도 더 정확할 가능성이 높다 (잘린 줄은 둘 다 망가진다)
+        out[at] = { ...out[at], word: w.word, meaning: w.meaning };
+        index.set(key, at);
+      }
+    })
+  );
+  return out;
 }

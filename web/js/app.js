@@ -1,6 +1,6 @@
 // 단어 암기장 - 단일 페이지 앱 (해시 라우팅, 데이터는 Supabase)
 import * as db from './db.js';
-import { recognizeWords } from './ocr.js';
+import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js';
 import { AI_EXTRACT_ENABLED } from './config.js';
 
 const $app = document.getElementById('app');
@@ -402,8 +402,12 @@ function mountEditor(container, words) {
   };
 }
 
+const MAX_PHOTOS = 10;
+
 async function viewNew() {
-  let image = null;
+  let images = []; // 올린 사진 (data URL)
+  let readCount = 0; // 앞에서부터 몇 장까지 단어를 읽었는지
+  const edgeWords = new Set(); // 사진 맨 위 줄(반쯤 잘리기 쉬움)에서 읽은 단어
   $app.innerHTML = `
     ${topbar('새 단어장', { back: '/' })}
     <div class="stack">
@@ -412,13 +416,13 @@ async function viewNew() {
         <label class="photo-drop" id="drop">
           <span class="big">📷</span>
           <b>사진 찍기 / 앨범에서 선택</b>
-          <span class="small muted">단어와 뜻이 잘 보이게 찍어 주세요</span>
-          <input type="file" id="file" accept="image/*" hidden>
+          <span class="small muted">여러 장을 한 번에 골라도 돼요 (최대 ${MAX_PHOTOS}장)</span>
+          <input type="file" id="file" accept="image/*" multiple hidden>
         </label>
-        <img id="preview" class="photo-preview" hidden alt="올린 사진">
+        <div class="photo-strip" id="strip" hidden></div>
         <div class="row" style="margin-top:12px" id="photoActions" hidden>
-          <button class="btn" id="rechoose">다른 사진</button>
-          <button class="btn primary" id="ocr" style="flex:1">🔍 단어 인식</button>
+          <button class="btn" id="addPhoto">＋ 사진 추가</button>
+          <button class="btn primary" id="ocr" style="flex:1">🔍 전체 다시 인식</button>
           ${AI_EXTRACT_ENABLED ? '<button class="btn" id="ai">✨ AI로 정확하게</button>' : ''}
         </div>
         <div id="extractStatus"></div>
@@ -433,7 +437,7 @@ async function viewNew() {
 
   let editor = mountEditor(document.getElementById('editor'), [{ word: '', meaning: '' }]);
   const $file = document.getElementById('file');
-  const $preview = document.getElementById('preview');
+  const $strip = document.getElementById('strip');
   const $drop = document.getElementById('drop');
   const $ocr = document.getElementById('ocr');
   const $ai = document.getElementById('ai');
@@ -442,37 +446,62 @@ async function viewNew() {
   const note = (msg, bad = false) =>
     status(`<p class="small" style="margin:8px 0 0${bad ? ';color:var(--bad)' : ''}">${msg}</p>`);
 
-  $file.onchange = async () => {
-    const file = $file.files[0];
-    if (!file) return;
-    try {
-      image = await resizeImage(file);
-      $preview.src = image;
-      $preview.hidden = false;
-      $drop.hidden = true;
-      document.getElementById('photoActions').hidden = false;
-      $ocr.click();
-    } catch (err) {
-      toast(err.message);
-    }
-    $file.value = '';
+  const renderStrip = () => {
+    $strip.innerHTML = images
+      .map((src, i) => `<div class="ph"><img src="${src}" alt="사진 ${i + 1}"><span class="n">${i + 1}</span><button type="button" class="x" data-i="${i}" aria-label="사진 ${i + 1} 빼기">×</button></div>`)
+      .join('');
+    const has = images.length > 0;
+    $strip.hidden = !has;
+    $drop.hidden = has;
+    document.getElementById('photoActions').hidden = !has;
+    $ocr.textContent = images.length > 1 ? '🔍 전체 다시 인식' : '🔍 다시 인식';
   };
-  document.getElementById('rechoose').onclick = () => $file.click();
+  $strip.onclick = (e) => {
+    const i = e.target.closest('.x')?.dataset.i;
+    if (i === undefined || busy) return;
+    images.splice(Number(i), 1);
+    readCount = Math.min(readCount, images.length);
+    renderStrip();
+    note('사진을 뺐어요. 이미 읽은 단어는 아래 표에 그대로 있으니, 필요 없으면 지워 주세요.');
+  };
 
-  const showResult = (words, how) => {
+  $file.onchange = async () => {
+    const files = [...$file.files];
+    $file.value = '';
+    if (!files.length) return;
+    const room = MAX_PHOTOS - images.length;
+    if (files.length > room) toast(`사진은 최대 ${MAX_PHOTOS}장까지 올릴 수 있어요.`);
+    for (const file of files.slice(0, Math.max(0, room))) {
+      try {
+        images.push(await resizeImage(file));
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+    renderStrip();
+    readNew();
+  };
+  document.getElementById('addPhoto').onclick = () => $file.click();
+
+  // 지금 표에 있는 단어 (빈 줄 제외)
+  const currentWords = () => editor.get().filter((w) => w.word || w.meaning);
+
+  const showResult = (words, how, added) => {
     if (!words.length) {
       return note('단어를 찾지 못했어요. 더 밝고 반듯하게 찍어 다시 올리거나 직접 입력해 주세요.', true);
     }
     editor = mountEditor(document.getElementById('editor'), words);
     const missing = words.filter((w) => !w.meaning).length;
     note(
-      `✅ ${how}으로 단어 ${words.length}개를 찾았어요. 틀린 글자가 있을 수 있으니 아래에서 확인해 주세요.` +
+      `✅ ${how}으로 ${added === undefined ? '' : `새로 ${added}개, `}모두 ${words.length}개 단어가 있어요. 틀린 글자가 있을 수 있으니 아래에서 확인해 주세요.` +
         (missing ? `<br>뜻을 못 찾은 단어 ${missing}개는 빨간 칸에 뜻을 적어 주세요.` : '')
     );
   };
 
+  let busy = false;
   const run = async (button, task) => {
-    if (!image) return;
+    if (!images.length || busy) return;
+    busy = true;
     $ocr.disabled = true;
     if ($ai) $ai.disabled = true;
     try {
@@ -480,30 +509,56 @@ async function viewNew() {
     } catch (err) {
       note(esc(err.message), true);
     } finally {
+      busy = false;
       $ocr.disabled = false;
       if ($ai) $ai.disabled = false;
     }
   };
 
-  // 무료 인식 (브라우저 안에서 Tesseract.js)
-  $ocr.onclick = () =>
+  // 사진들을 한 장씩 읽는다 (from 번째부터). 사진 여러 장이면 "사진 2/4" 처럼 진행을 보여 준다.
+  const readPhotos = async (from, readOne, label) => {
+    const lists = [];
+    for (let i = from; i < images.length; i++) {
+      const prefix = images.length > 1 ? `사진 ${i + 1}/${images.length} · ` : '';
+      status(loading(`${prefix}${label}...`));
+      lists.push(
+        await readOne(images[i], (pct, text) => {
+          const el = $status.querySelector('.loading');
+          if (el) el.lastChild.textContent = `${prefix}${pct === null ? `${text}...` : `${text}... ${pct}%`}`;
+        })
+      );
+    }
+    readCount = images.length;
+    return lists;
+  };
+  const ocrOne = (image, onProgress) => recognizeWords(image, onProgress);
+  const aiOne = async (image) => (await db.extractWords(image)).words;
+
+  // 새로 올린 사진만 읽어서 지금 표에 이어 붙인다
+  const readNew = () =>
     run($ocr, async () => {
-      status(loading('인식 준비 중...'));
-      const words = await recognizeWords(image, (pct, label) => {
-        const el = $status.querySelector('.loading');
-        if (el) el.lastChild.textContent = pct === null ? `${label}...` : `${label}... ${pct}%`;
-      });
-      showResult(words, '무료 인식');
+      const before = currentWords();
+      const lists = await readPhotos(readCount, ocrOne, '인식 준비 중');
+      const words = mergePages([before, ...lists], edgeWords);
+      for (const list of lists) for (const w of list.slice(0, EDGE_ROWS)) edgeWords.add(w.word.toLowerCase());
+      showResult(words, '무료 인식', before.length ? words.length - before.length : undefined);
     });
+
+  // 무료 인식 (브라우저 안에서 Tesseract.js) - 모든 사진을 처음부터 다시 읽어 표를 바꾼다
+  $ocr.onclick = () => {
+    if (currentWords().length && !confirm('모든 사진을 다시 읽어서 아래 표를 새로 채울까요?\n직접 고친 내용은 사라집니다.')) return;
+    run($ocr, async () => {
+      edgeWords.clear();
+      const lists = await readPhotos(0, ocrOne, '인식 준비 중');
+      showResult(mergePages([[], ...lists]), '무료 인식');
+      for (const list of lists) for (const w of list.slice(0, EDGE_ROWS)) edgeWords.add(w.word.toLowerCase());
+    });
+  };
 
   // AI 인식 (Supabase Edge Function + Claude)
   if ($ai)
     $ai.onclick = () =>
-      run($ai, async () => {
-        status(loading('AI가 사진을 읽는 중... (10~30초)'));
-        const { words } = await db.extractWords(image);
-        showResult(words, 'AI');
-      });
+      run($ai, async () => showResult(mergePages([[], ...(await readPhotos(0, aiOne, 'AI가 사진을 읽는 중 (10~30초)'))]), 'AI'));
 
   document.getElementById('save').onclick = async (e) => {
     const words = editor.get().filter((w) => w.word || w.meaning);
@@ -513,7 +568,7 @@ async function viewNew() {
     try {
       const { set } = await db.createSet({
         title: document.getElementById('title').value,
-        image,
+        images,
         words,
       });
       toast('단어장을 저장했어요!');
@@ -613,7 +668,7 @@ async function viewSet({ params: [id], query, isCurrent }) {
         : ''
     }
     ${!isSelf ? `<div class="card small" style="margin-bottom:12px">👀 <b>${esc(progress.user.name)}</b>의 학습 기록을 보고 있어요.</div>` : ''}
-    ${set.hasImage ? `<img class="thumb" id="thumb" alt="원본 사진" style="margin-bottom:12px">` : ''}
+    ${set.hasImage ? `<div class="thumbs" id="thumbs" style="margin-bottom:12px"></div>` : ''}
     <div class="section-title" style="margin-top:8px">학습 단계</div>
     ${['learn', 'quiz', 'spell', 'final'].map(stepRow).join('')}
 
@@ -651,13 +706,21 @@ async function viewSet({ params: [id], query, isCurrent }) {
       ${isParent || set.createdBy === state.me.code ? '<button class="btn small danger" id="del">삭제</button>' : ''}
     </div>`;
 
-  const $thumb = document.getElementById('thumb');
-  if ($thumb) db.imageUrl(id).then((url) => ($thumb.src = url)).catch(() => $thumb.remove());
+  const $thumbs = document.getElementById('thumbs');
+  if ($thumbs)
+    db.imageUrls(id)
+      .then((urls) => {
+        if (!urls.length) return $thumbs.remove();
+        $thumbs.classList.toggle('many', urls.length > 1);
+        $thumbs.innerHTML = urls.map((u, i) => `<img class="thumb" src="${esc(u)}" alt="원본 사진 ${i + 1}">`).join('');
+      })
+      .catch(() => $thumbs.remove());
   document.getElementById('csv').onclick = () => db.downloadCsv(set);
-  $thumb?.addEventListener('click', () => {
+  $thumbs?.addEventListener('click', (e) => {
+    if (e.target.tagName !== 'IMG') return;
     const box = document.createElement('div');
     box.className = 'lightbox';
-    box.innerHTML = `<img src="${esc($thumb.src)}" alt="원본 사진">`;
+    box.innerHTML = `<img src="${esc(e.target.src)}" alt="원본 사진">`;
     box.onclick = () => box.remove();
     document.body.appendChild(box);
   });

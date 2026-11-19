@@ -415,3 +415,12 @@ details.bulk textarea { min-height: 120px; margin-top: 8px; }
 .summary-tiles .tile-s { background: var(--surface-2); border-radius: 12px; padding: 12px; text-align: center; }
 .summary-tiles .v { font-size: 22px; font-weight: 800; }
 .summary-tiles .k { font-size: 12px; color: var(--muted); }
+
+/* 여러 장 사진 */
+.photo-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.photo-strip .ph { position: relative; flex: 0 0 auto; }
+.photo-strip img { height: 120px; width: auto; max-width: 160px; object-fit: cover; border-radius: 10px; background: var(--surface-2); display: block; }
+.photo-strip .n { position: absolute; left: 6px; top: 6px; background: #000a; color: #fff; font-size: 12px; border-radius: 8px; padding: 1px 7px; }
+.photo-strip .x { position: absolute; right: 4px; top: 4px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: #000a; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.thumbs.many { display: flex; gap: 8px; overflow-x: auto; }
+.thumbs.many .thumb { flex: 0 0 auto; width: 140px; height: 180px; max-height: none; }

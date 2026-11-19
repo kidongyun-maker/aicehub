@@ -187,16 +187,22 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: 'image/jpeg' });
 }
 
-export async function createSet({ title, image, words }) {
+// 사진 파일 이름: 첫 장은 {id}.jpg, 둘째 장부터 {id}-2.jpg, {id}-3.jpg ...
+const photoPath = (id, i) => (i === 0 ? `${id}.jpg` : `${id}-${i + 1}.jpg`);
+
+export async function createSet({ title, images = [], words }) {
   const cleaned = cleanWords(words);
   if (!cleaned.length) throw new Error('단어를 1개 이상 입력해 주세요.');
   const id = uuid();
-  let hasImage = false;
-  if (image) {
-    const { error } = await sb.storage.from('photos').upload(`${id}.jpg`, dataUrlToBlob(image), { contentType: 'image/jpeg' });
+  let uploaded = 0;
+  for (const image of images) {
+    const { error } = await sb.storage
+      .from('photos')
+      .upload(photoPath(id, uploaded), dataUrlToBlob(image), { contentType: 'image/jpeg' });
     if (error) console.warn('사진 업로드 실패:', error.message);
-    else hasImage = true;
+    else uploaded++;
   }
+  const hasImage = uploaded > 0;
   const { data, error } = await sb
     .from('word_sets')
     .insert({ id, title: String(title || '').trim().slice(0, 60) || defaultTitle(), words: cleaned, has_image: hasImage, created_by: me.code })
@@ -224,16 +230,31 @@ export async function deleteSet(id) {
   const { data, error } = await sb.from('word_sets').delete().eq('id', id).select('id');
   check(error);
   if (!data.length) throw new Error('직접 올린 단어장만 삭제할 수 있습니다.');
-  await sb.storage.from('photos').remove([`${id}.jpg`]);
+  const paths = await photoPaths(id).catch(() => [`${id}.jpg`]);
+  await sb.storage.from('photos').remove(paths.length ? paths : [`${id}.jpg`]);
+}
+
+// 단어장의 사진 파일 목록 (올린 순서대로)
+async function photoPaths(id) {
+  const { data, error } = await sb.storage.from('photos').list('', { search: id, limit: 100 });
+  check(error);
+  const order = (name) => Number(/-(\d+)\.jpg$/.exec(name.slice(id.length))?.[1] ?? 1);
+  return data
+    .map((f) => f.name)
+    .filter((n) => n === `${id}.jpg` || new RegExp(`^${id}-\\d+\\.jpg$`).test(n))
+    .sort((a, b) => order(a) - order(b));
 }
 
 const imageUrlCache = new Map();
-export async function imageUrl(id) {
+export async function imageUrls(id) {
   if (imageUrlCache.has(id)) return imageUrlCache.get(id);
-  const { data, error } = await sb.storage.from('photos').createSignedUrl(`${id}.jpg`, 60 * 60);
+  const paths = await photoPaths(id);
+  if (!paths.length) return [];
+  const { data, error } = await sb.storage.from('photos').createSignedUrls(paths, 60 * 60);
   check(error);
-  imageUrlCache.set(id, data.signedUrl);
-  return data.signedUrl;
+  const urls = data.map((d) => d.signedUrl).filter(Boolean);
+  imageUrlCache.set(id, urls);
+  return urls;
 }
 
 export function downloadCsv(set) {
