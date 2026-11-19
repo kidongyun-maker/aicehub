@@ -698,3 +698,19 @@ body.game-mode .app { user-select: none; -webkit-user-select: none; }
 }
 .theme-toggle.dark::before { transform: translateX(26px); }
 .app > .theme-toggle { margin-left: auto; } /* 로그인 화면: 오른쪽 위 */
+
+/* AI로 등록하기 - 눌러서 복사 박스 */
+.ai-help h2 { margin-bottom: 4px; }
+.copy-box {
+  position: relative; display: block; width: 100%; text-align: left; cursor: pointer;
+  margin-top: 8px; padding: 14px 14px 36px; border-radius: 12px;
+  border: 1.5px dashed var(--primary); background: var(--primary-soft); color: var(--text);
+  font-size: 14px; line-height: 1.6; transition: background .2s, border-color .2s;
+}
+.copy-box .copy-text { white-space: pre-wrap; word-break: break-all; }
+.copy-box .copy-tag {
+  position: absolute; right: 10px; bottom: 8px; font-size: 12px; font-weight: 700; color: var(--primary);
+}
+.copy-box:active { transform: scale(.99); }
+.copy-box.copied { border-style: solid; border-color: var(--good); background: var(--good-soft); }
+.copy-box.copied .copy-tag { color: var(--good); }

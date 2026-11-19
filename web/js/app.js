@@ -520,6 +520,39 @@ function parseImport(w) {
   return { title, words };
 }
 
+// AI에게 보낼 안내 글 (단어장 등록 화면 아래 박스)
+const aiPrompt = (code) =>
+  `https://aicehub.com/llms.txt 를 읽고 그 방법대로 해 줘.
+첨부한 사진에서 영어 단어와 한국어 뜻을 모두 찾아 목록으로 보여 준 다음, 인증번호 ${code} 로 '서진이의 단어 암기장'에 저장해 줘.
+직접 저장(POST)을 못 하면 가져오기 링크(https://aicehub.com/?w=... 형식)를 만들어 주고, 링크 주소도 글자로 보여 줘.
+붙여넣기용 목록(한 줄에 "단어 - 뜻")도 같이 줘.`;
+
+async function copyText(text, el) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // 오래된 브라우저·http 등: 임시 입력칸으로 복사
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+    } catch {}
+    ta.remove();
+  }
+  toast('복사했어요! AI 채팅에 붙여넣으세요.');
+  const tag = el?.querySelector('.copy-tag');
+  if (!el || !tag) return;
+  el.classList.add('copied');
+  tag.textContent = '✓ 복사됨';
+  setTimeout(() => {
+    el.classList.remove('copied');
+    tag.textContent = '📋 눌러서 복사';
+  }, 1500);
+}
+
 async function viewNew({ query = {} } = {}) {
   const { title: importTitle, words: imported } = parseImport(query.w);
   let images = []; // 올린 사진 (data URL)
@@ -550,7 +583,18 @@ async function viewNew({ query = {} } = {}) {
         <div id="editor"></div>
       </div>
       <button class="btn primary block" id="save" style="min-height:52px">저장하고 학습 시작</button>
+      <div class="card ai-help">
+        <h2>🤖 AI로 등록하기</h2>
+        <p class="small muted">ChatGPT·제미나이·Claude 같은 AI에 단어장 사진을 올리고, 아래 글을 함께 보내세요. 박스를 누르면 복사돼요.</p>
+        <button class="copy-box" id="aiPrompt" type="button">
+          <span class="copy-text">${esc(aiPrompt(state.me.code))}</span>
+          <span class="copy-tag">📋 눌러서 복사</span>
+        </button>
+        <p class="small muted" style="margin:8px 0 0">AI가 바로 저장하면 단어장 링크를, 못 하면 <b>가져오기 링크</b>를 줘요. 링크를 열어 확인하고 저장하면 끝!</p>
+      </div>
     </div>`;
+
+  document.getElementById('aiPrompt').onclick = (e) => copyText(aiPrompt(state.me.code), e.currentTarget);
 
   let editor = mountEditor(document.getElementById('editor'), imported.length ? imported : [{ word: '', meaning: '' }]);
   if (imported.length) {
