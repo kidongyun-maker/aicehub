@@ -4,6 +4,7 @@ import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js?v=__V__';
 import { AI_EXTRACT_ENABLED } from './config.js?v=__V__';
 import { voiceSupported, listen, toSpelling } from './voice.js?v=__V__';
 import { loadDict, checkWord } from './spell.js?v=__V__';
+import { GAMES, getRecord, recordText, playMatch, playSpell } from './games.js?v=__V__';
 
 const $app = document.getElementById('app');
 const state = { me: null, passRate: 80 };
@@ -153,6 +154,7 @@ const routes = [
   [/^\/set\/([a-f0-9-]{36})\/learn$/, viewLearn],
   [/^\/set\/([a-f0-9-]{36})\/run\/(quiz|spell|meaning_write|spell_write|final)$/, viewRun],
   [/^\/set\/([a-f0-9-]{36})\/result\/([a-f0-9-]{36})$/, viewResult],
+  [/^\/set\/([a-f0-9-]{36})\/game\/(match|spell)$/, viewGame],
 ];
 
 let renderSeq = 0;
@@ -727,6 +729,24 @@ async function viewSet({ params: [id], query, isCurrent }) {
     ${set.hasImage ? `<div class="thumbs" id="thumbs" style="margin-bottom:12px"></div>` : ''}
     <div class="section-title" style="margin-top:8px">학습 단계 <span class="small muted" style="font-weight:400">· 원하는 단계부터 해도 돼요</span></div>
     ${STEP_ORDER.map(stepRow).join('')}
+${
+  isSelf
+    ? `
+    <div class="section-title">🎮 게임으로 외우기</div>
+    <div class="game-cards">
+      ${Object.entries(GAMES)
+        .map(
+          ([key, g]) => `
+        <a class="card game-card" href="#/set/${id}/game/${key}">
+          <div class="icon">${g.icon}</div>
+          <div class="name">${g.name}</div>
+          <div class="desc">${esc(recordText(key, getRecord(state.me.code, id, key)))}</div>
+        </a>`
+        )
+        .join('')}
+    </div>`
+    : ''
+}
 
     <div class="section-title">시험 기록</div>
     <div class="card history">
@@ -790,6 +810,19 @@ async function viewSet({ params: [id], query, isCurrent }) {
       toast(err.message);
     }
   });
+}
+
+// ---------- 게임 ----------
+
+async function viewGame({ params: [id, game], isCurrent }) {
+  const { set } = await db.getSet(id);
+  if (!isCurrent()) return;
+  if (set.words.length < 2) {
+    $app.innerHTML = `${topbar('게임', { back: `/set/${id}` })}<div class="card empty">단어가 2개 이상 있어야 게임을 할 수 있어요.</div>`;
+    return;
+  }
+  const ctx = { $app, set, id, game, esc, shuffle, speak, isCurrent, code: state.me.code, restart: () => render() };
+  (game === 'match' ? playMatch : playSpell)(ctx);
 }
 
 // ---------- 1단계: 단어 암기 (플래시카드) ----------
