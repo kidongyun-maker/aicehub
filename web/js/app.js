@@ -5,6 +5,7 @@ import { AI_EXTRACT_ENABLED } from './config.js?v=__V__';
 import { voiceSupported, listen, toSpelling } from './voice.js?v=__V__';
 import { loadDict, checkWord } from './spell.js?v=__V__';
 import { GAMES, getRecord, recordText, playMatch, playSpell } from './games.js?v=__V__';
+import { viewMathHome, viewMathList, viewMathDetail } from './math.js?v=__V__';
 
 const $app = document.getElementById('app');
 const state = { me: null, passRate: 80 };
@@ -80,6 +81,7 @@ const go = (path) => {
 const loading = (msg = '불러오는 중...') => `<div class="loading"><div class="spinner"></div>${esc(msg)}</div>`;
 
 function roleBadge(user) {
+  if (!user) return '';
   return `<span class="badge ${user.role}">${user.role === 'parent' ? '부모' : '학생'} ${esc(user.code)}</span>`;
 }
 
@@ -173,6 +175,10 @@ function chipsFor(summary) {
 
 const routes = [
   [/^\/login$/, viewLogin, { public: true }],
+  // 수학 공식: 로그인 없이 볼 수 있다
+  [/^\/math$/, (a) => viewMathHome(mathCtx(a)), { public: true }],
+  [/^\/math\/(g|c)\/(\w+)$/, (a) => viewMathList(mathCtx(a), a.params[0], a.params[1]), { public: true }],
+  [/^\/math\/f\/([\w-]+)$/, (a) => viewMathDetail(mathCtx(a), a.params[0]), { public: true }],
   [/^\/$/, viewHome],
   [/^\/report$/, viewReport],
   [/^\/new$/, viewNew],
@@ -183,6 +189,9 @@ const routes = [
   [/^\/set\/([a-f0-9-]{36})\/result\/([a-f0-9-]{36})$/, viewResult],
   [/^\/set\/([a-f0-9-]{36})\/game\/(match|spell)$/, viewGame],
 ];
+
+// 수학 공식 화면에 넘겨줄 것들
+const mathCtx = ({ isCurrent }) => ({ $app, isCurrent, go, themeSwitch, loggedIn: Boolean(state.me) });
 
 let renderSeq = 0;
 async function render() {
@@ -195,7 +204,9 @@ async function render() {
   document.body.classList.remove('game-mode');
   document.querySelectorAll('.g-countdown, .g-banner, .g-confetti, .g-spark, .g-float').forEach((el) => el.remove());
 
-  if (!state.me && path !== '/login') {
+  const route = routes.find(([re]) => re.test(path));
+  const isPublic = Boolean(route?.[2]?.public);
+  if (!state.me && !isPublic) {
     // 로그인 후 원래 가려던 화면으로 (AI가 만든 가져오기 링크 등)
     if (path !== '/') sessionStorage.setItem('afterLogin', location.hash.slice(1));
     return go('/login');
@@ -210,7 +221,7 @@ async function render() {
       try {
         await view({ params: m.slice(1), query, isCurrent: () => seq === renderSeq });
       } catch (err) {
-        if (seq !== renderSeq || !state.me) return;
+        if (seq !== renderSeq || (!state.me && !isPublic)) return;
         $app.innerHTML = `${topbar('오류', { back: '/' })}<div class="card empty">${esc(err.message)}</div>`;
       }
       return;
@@ -231,6 +242,11 @@ async function viewLogin() {
       <input id="code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" aria-label="사용자 번호" autofocus>
       <div class="error" id="err"></div>
       <button class="btn primary block" type="submit">시작하기</button>
+      <a class="math-entry" href="#/math">
+        <span class="math-entry-icon">📐</span>
+        <span><b>서진이의 수학 공식</b><br><span class="small muted">중학교 공식 모음 · 로그인 없이 볼 수 있어요</span></span>
+        <span class="m-chev">›</span>
+      </a>
     </form>`;
   const $code = document.getElementById('code');
   const $err = document.getElementById('err');
@@ -272,6 +288,7 @@ function homeHeader(active) {
       <h1>📘 단어 암기장</h1>
       ${roleBadge(state.me)}
       ${themeSwitch()}
+      <a class="btn small ghost" href="#/math" aria-label="수학 공식">📐</a>
       <button class="btn small ghost" id="logout">로그아웃</button>
     </div>
     <nav class="tabs">
