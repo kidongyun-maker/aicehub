@@ -83,12 +83,39 @@ function roleBadge(user) {
   return `<span class="badge ${user.role}">${user.role === 'parent' ? '부모' : '학생'} ${esc(user.code)}</span>`;
 }
 
+// ---------- 라이트/다크 스위치 ----------
+// 고르기 전에는 휴대폰 설정을 따른다. 고르면 기기에 기억한다 (index.html 에서 화면 그리기 전에 먼저 적용).
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const isDarkTheme = () => (document.documentElement.dataset.theme || (darkQuery.matches ? 'dark' : 'light')) === 'dark';
+function themeSwitch() {
+  const dark = isDarkTheme();
+  return `<button class="theme-toggle ${dark ? 'dark' : ''}" data-theme-toggle role="switch" aria-checked="${dark}" aria-label="다크 모드"><span>☀️</span><span>🌙</span></button>`;
+}
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-theme-toggle]');
+  if (!btn) return;
+  const theme = isDarkTheme() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  try {
+    localStorage.setItem('theme', theme);
+  } catch {}
+  document.querySelectorAll('[data-theme-toggle]').forEach((b) => {
+    b.classList.toggle('dark', theme === 'dark');
+    b.setAttribute('aria-checked', String(theme === 'dark'));
+  });
+});
+// 고르지 않은 상태에서 휴대폰 설정이 바뀌면 스위치 모양도 맞춘다
+darkQuery.addEventListener?.('change', () =>
+  document.querySelectorAll('[data-theme-toggle]').forEach((b) => b.classList.toggle('dark', isDarkTheme()))
+);
+
 function topbar(title, { back } = {}) {
   return `
     <div class="topbar">
       ${back ? `<a class="btn icon ghost" href="#${back}" aria-label="뒤로">←</a>` : ''}
       <h1>${esc(title)}</h1>
       ${roleBadge(state.me)}
+      ${themeSwitch()}
     </div>`;
 }
 
@@ -196,6 +223,7 @@ async function render() {
 
 async function viewLogin() {
   $app.innerHTML = `
+    ${themeSwitch()}
     <form class="login" id="f" autocomplete="off">
       <div class="logo">📘</div>
       <h1>서진이의 단어 암기장</h1>
@@ -243,6 +271,7 @@ function homeHeader(active) {
     <div class="topbar">
       <h1>📘 단어 암기장</h1>
       ${roleBadge(state.me)}
+      ${themeSwitch()}
       <button class="btn small ghost" id="logout">로그아웃</button>
     </div>
     <nav class="tabs">

@@ -19,8 +19,9 @@
   color-scheme: light;
 }
 
+/* 다크 모드: 휴대폰 설정을 따르되, 상단 스위치로 고르면(data-theme) 그쪽을 따른다 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #11141c;
     --surface: #1a1f2b;
     --surface-2: #232a39;
@@ -39,6 +40,26 @@
     --shadow: none;
     color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #11141c;
+  --surface: #1a1f2b;
+  --surface-2: #232a39;
+  --text: #e8ebf3;
+  --muted: #9099ad;
+  --line: #2e3647;
+  --primary: #7b91ff;
+  --primary-ink: #0f1424;
+  --primary-soft: #263056;
+  --good: #45c98b;
+  --good-soft: #17352a;
+  --bad: #f07272;
+  --bad-soft: #3d1f22;
+  --warn: #e3b14a;
+  --warn-soft: #3a3020;
+  --shadow: none;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -663,3 +684,17 @@ body.game-mode .app { user-select: none; -webkit-user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .g-card, .g-brick, .g-slot, .g-countdown span, .g-banner span, .g-medal, .g-stars span, .g-confetti { animation: none !important; }
 }
+
+/* 라이트/다크 스위치 */
+.theme-toggle {
+  position: relative; width: 58px; height: 32px; flex: none; padding: 0; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-2);
+  display: flex; align-items: center; justify-content: space-between; font-size: 14px;
+}
+.theme-toggle span { width: 28px; text-align: center; z-index: 1; line-height: 1; }
+.theme-toggle::before {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .2s;
+}
+.theme-toggle.dark::before { transform: translateX(26px); }
+.app > .theme-toggle { margin-left: auto; } /* 로그인 화면: 오른쪽 위 */
