@@ -1,0 +1,144 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "서진이의 단어 암기장 Word API",
+    "version": "1.0.0",
+    "description": "Save English words with Korean meanings into the family vocabulary app (https://aicehub.com). Ask the user for their 4-digit code (9585 student, 5238 parent); never guess it. Show the word list to the user before saving. Guide: https://aicehub.com/llms.txt"
+  },
+  "servers": [
+    {
+      "url": "https://erxgvoqioytqvobrwwfq.supabase.co/rest/v1"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "apikey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "apikey",
+        "description": "Public publishable key: sb_publishable_9-A3YEXWWvzZ_2-N5Cq_NQ_nze0aAQ8"
+      }
+    },
+    "schemas": {
+      "Word": {
+        "type": "object",
+        "required": [
+          "word",
+          "meaning"
+        ],
+        "properties": {
+          "word": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "English word or phrase, spelled exactly as printed"
+          },
+          "meaning": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Korean meaning; join several meanings with '; '"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "apikey": []
+    }
+  ],
+  "paths": {
+    "/rpc/api_add_words": {
+      "post": {
+        "operationId": "addWords",
+        "summary": "Create a word set from a list of words",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "code",
+                  "words"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[0-9]{4}$",
+                    "description": "User's 4-digit code"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Word set name (optional)"
+                  },
+                  "words": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 300,
+                    "items": {
+                      "$ref": "#/components/schemas/Word"
+                    }
+                  }
+                }
+              },
+              "example": {
+                "code": "9585",
+                "title": "3과 단어",
+                "words": [
+                  {
+                    "word": "apple",
+                    "meaning": "사과"
+                  },
+                  {
+                    "word": "look after",
+                    "meaning": "~을 돌보다"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "Link to open the new word set"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad words / rate limit (message explains)"
+          },
+          "403": {
+            "description": "Wrong code"
+          }
+        }
+      }
+    }
+  }
+}

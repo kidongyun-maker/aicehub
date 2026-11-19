@@ -168,7 +168,11 @@ async function render() {
   document.body.classList.remove('game-mode');
   document.querySelectorAll('.g-countdown, .g-banner, .g-confetti, .g-spark, .g-float').forEach((el) => el.remove());
 
-  if (!state.me && path !== '/login') return go('/login');
+  if (!state.me && path !== '/login') {
+    // 로그인 후 원래 가려던 화면으로 (AI가 만든 가져오기 링크 등)
+    if (path !== '/') sessionStorage.setItem('afterLogin', location.hash.slice(1));
+    return go('/login');
+  }
   if (state.me && path === '/login') return go('/');
 
   for (const [re, view] of routes) {
@@ -207,7 +211,9 @@ async function viewLogin() {
     try {
       const { user } = await db.login($code.value);
       state.me = user;
-      go('/');
+      const next = sessionStorage.getItem('afterLogin');
+      sessionStorage.removeItem('afterLogin');
+      go(next || '/');
     } catch (err) {
       $err.textContent = err.message;
       $code.value = '';
@@ -468,7 +474,20 @@ function confirmSpell(editor) {
 
 const MAX_PHOTOS = 10;
 
-async function viewNew() {
+// 가져오기 링크: #/new?t=제목&w=apple=사과|borrow=빌리다  (AI가 만들어 주는 링크, 항목 구분은 | 또는 줄바꿈)
+function parseImport(w) {
+  return String(w || '')
+    .split(/\||\n/)
+    .map((x) => {
+      const i = x.search(/[=\t]/);
+      return i > 0 ? { word: x.slice(0, i).trim(), meaning: x.slice(i + 1).trim() } : null;
+    })
+    .filter((x) => x && x.word && x.meaning)
+    .slice(0, 300);
+}
+
+async function viewNew({ query = {} } = {}) {
+  const imported = parseImport(query.w);
   let images = []; // 올린 사진 (data URL)
   let readCount = 0; // 앞에서부터 몇 장까지 단어를 읽었는지
   const edgeWords = new Set(); // 사진 맨 위 줄(반쯤 잘리기 쉬움)에서 읽은 단어
@@ -499,7 +518,11 @@ async function viewNew() {
       <button class="btn primary block" id="save" style="min-height:52px">저장하고 학습 시작</button>
     </div>`;
 
-  let editor = mountEditor(document.getElementById('editor'), [{ word: '', meaning: '' }]);
+  let editor = mountEditor(document.getElementById('editor'), imported.length ? imported : [{ word: '', meaning: '' }]);
+  if (imported.length) {
+    document.getElementById('title').value = String(query.t || '').slice(0, 60);
+    toast(`단어 ${imported.length}개를 가져왔어요. 확인하고 저장해 주세요.`);
+  }
   const $file = document.getElementById('file');
   const $strip = document.getElementById('strip');
   const $drop = document.getElementById('drop');

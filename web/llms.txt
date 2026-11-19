@@ -1,0 +1,68 @@
+# 서진이의 단어 암기장 — Word API (for AI assistants)
+
+Site: https://aicehub.com  (Korean English-vocabulary study app for a family)
+This document tells an AI assistant how to save English words + Korean meanings
+(for example, words read from a photo of a vocabulary list) into the app.
+
+## Workflow for the AI
+1. Read the words from the user's image/text. Make a list of pairs: English word (or phrase) + Korean meaning.
+   - Keep the spelling exactly as printed. Use the Korean meaning as printed; if several meanings, join with "; ".
+   - Skip headers, page numbers, example sentences, pronunciation symbols.
+2. Show the list to the user and let them fix mistakes.
+3. You need the user's 4-digit code (인증번호): 9585 = student, 5238 = parent. Ask the user if not given. Never guess it.
+4. Save with Method A if you can send HTTP POST requests. Otherwise use Method B (a link the user clicks).
+5. Give the user the returned link to open the new word set.
+
+## Method A — HTTP POST (tools, agents, custom GPT actions, scripts)
+
+POST https://erxgvoqioytqvobrwwfq.supabase.co/rest/v1/rpc/api_add_words
+Headers:
+  apikey: sb_publishable_9-A3YEXWWvzZ_2-N5Cq_NQ_nze0aAQ8
+  Content-Type: application/json
+Body (JSON):
+  {
+    "code": "9585",
+    "title": "3과 단어",
+    "words": [
+      {"word": "apple", "meaning": "사과"},
+      {"word": "look after", "meaning": "~을 돌보다"}
+    ]
+  }
+
+- code   (string, required): the user's 4-digit code.
+- words  (array, required, 1–300 items): {"word", "meaning"} objects. ["apple","사과"] pairs are also accepted.
+- title  (string, optional, max 60 chars): word-set name. Default: today's date like "11월 19일 단어".
+- Only the "apikey" header is needed (it is the public, publishable key). Do not send an Authorization header.
+
+Success (HTTP 200):
+  {"ok": true, "id": "<uuid>", "title": "3과 단어", "count": 2, "skipped": 0,
+    "url": "https://aicehub.com/#/set/<uuid>"}
+  "skipped" = items without both word and meaning.
+
+Errors (JSON with "message"):
+  403 — 인증번호(code)가 올바르지 않습니다.  (wrong code)
+  400 — words 형식 오류 / 저장할 단어가 없습니다.  (bad words)
+  400 — 잠시 후 다시 시도해 주세요 (1시간에 30개까지).  (rate limit, hint "rate_limit")
+
+curl example:
+  curl -X POST 'https://erxgvoqioytqvobrwwfq.supabase.co/rest/v1/rpc/api_add_words' \
+    -H 'apikey: sb_publishable_9-A3YEXWWvzZ_2-N5Cq_NQ_nze0aAQ8' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"9585","title":"3과 단어","words":[{"word":"apple","meaning":"사과"}]}'
+
+OpenAPI spec: https://aicehub.com/api/openapi.json
+
+## Method B — Import link (chat assistants that cannot send POST requests)
+
+Build this link and give it to the user. Opening it shows the app's word editor already filled in;
+the user logs in with their code (if needed), checks the words (the app flags misspellings), and presses save.
+
+  https://aicehub.com/#/new?t=<title>&w=<word>=<meaning>|<word>=<meaning>|...
+
+- t: title (optional). w: items separated by "|", each "word=meaning" (split at the first "=").
+- Percent-encode spaces as %20 and avoid the characters & # | = inside words/meanings
+  (replace them, e.g. use "/" or ";" in meanings).
+- Example:
+  https://aicehub.com/#/new?t=3%EA%B3%BC%20%EB%8B%A8%EC%96%B4&w=apple=%EC%82%AC%EA%B3%BC|look%20after=~%EC%9D%84%20%EB%8F%8C%EB%B3%B4%EB%8B%A4
+  (Unencoded Korean also works in most browsers: https://aicehub.com/#/new?t=3과 단어&w=apple=사과|look after=~을 돌보다)
+- Keep the link under about 6,000 characters (~100 words). For more words, make several links.

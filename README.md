@@ -74,6 +74,16 @@ supabase/functions/extract-words/   (선택) AI 사진 추출 (Claude API 키 �
 > 로그인은 사용자 번호만 입력하는 방식이라, 번호를 아는 사람은 누구나 들어올 수 있습니다(가족용 수준의 보안).
 > 다른 이메일로 가입된 계정은 프로필이 없어서 어떤 데이터에도 접근할 수 없습니다.
 
+## 외부 API (AI 연동)
+
+AI에게 **https://aicehub.com/api** 주소를 알려 주고 "이 사진 단어를 9585로 저장해 줘"라고 하면, AI가 설명서를 읽고 연동합니다.
+
+- **POST API**: `POST {SUPABASE_URL}/rest/v1/rpc/api_add_words`, 헤더 `apikey`(publishable 키), 본문 `{"code":"9585","title":"3과 단어","words":[{"word":"apple","meaning":"사과"}]}` → 새 단어장 링크를 돌려줌. 번호당 1시간 30개 제한.
+  - 처음 한 번 `supabase/migrations/003_api.sql` 을 SQL Editor에서 실행해야 합니다.
+- **가져오기 링크**: POST를 못 보내는 채팅 AI용. `https://aicehub.com/#/new?t=제목&w=apple=사과|look after=~을 돌보다` 를 열면 단어가 채워진 편집 화면이 열리고, 확인 후 저장합니다 (로그인 안 돼 있으면 로그인 후 그 화면으로 돌아옴).
+- 설명서 파일: `web/api/index.html`, `web/api/openapi.json`(ChatGPT GPTs 액션용), `web/llms.txt`.
+- 보안: 번호만 알면 단어장을 추가할 수 있습니다(로그인과 같은 가족용 수준). 단어장 추가만 되고, 조회·수정·삭제는 API로 할 수 없습니다.
+
 ## 로컬에서 보기
 
 ```bash
