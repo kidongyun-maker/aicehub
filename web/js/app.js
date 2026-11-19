@@ -175,7 +175,7 @@ async function viewLogin() {
   $app.innerHTML = `
     <form class="login" id="f" autocomplete="off">
       <div class="logo">📘</div>
-      <h1>단어 암기장</h1>
+      <h1>서진이의 단어 암기장</h1>
       <p class="muted">사용자 번호 4자리를 입력하세요</p>
       <input id="code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" aria-label="사용자 번호" autofocus>
       <div class="error" id="err"></div>
