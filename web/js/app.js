@@ -164,6 +164,9 @@ async function render() {
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
   if (window.speechSynthesis) speechSynthesis.cancel();
   window.onkeydown = null;
+  // 게임 화면 디자인·효과는 게임에서만
+  document.body.classList.remove('game-mode');
+  document.querySelectorAll('.g-countdown, .g-banner, .g-confetti, .g-spark, .g-float').forEach((el) => el.remove());
 
   if (!state.me && path !== '/login') return go('/login');
   if (state.me && path === '/login') return go('/');
@@ -821,6 +824,7 @@ async function viewGame({ params: [id, game], isCurrent }) {
     $app.innerHTML = `${topbar('게임', { back: `/set/${id}` })}<div class="card empty">단어가 2개 이상 있어야 게임을 할 수 있어요.</div>`;
     return;
   }
+  document.body.classList.add('game-mode');
   const ctx = { $app, set, id, game, esc, shuffle, speak, isCurrent, code: state.me.code, restart: () => render() };
   (game === 'match' ? playMatch : playSpell)(ctx);
 }
