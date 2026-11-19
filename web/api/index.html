@@ -75,20 +75,28 @@ curl example:
 
 OpenAPI spec: https://aicehub.com/api/openapi.json
 
-## Method B — Import link (chat assistants that cannot send POST requests)
+## Method B — Import link (chat assistants that cannot send POST requests: Gemini, ChatGPT, Claude chat ...)
 
-Build this link and give it to the user. Opening it shows the app&#x27;s word editor already filled in;
+Build ONE link and give it to the user. Opening it shows the app&#x27;s word editor already filled in;
 the user logs in with their code (if needed), checks the words (the app flags misspellings), and presses save.
 
-  https://aicehub.com/#/new?t=&lt;title&gt;&amp;w=&lt;word&gt;=&lt;meaning&gt;|&lt;word&gt;=&lt;meaning&gt;|...
+  https://aicehub.com/?w=&lt;ENCODED&gt;
 
-- t: title (optional). w: items separated by &quot;|&quot;, each &quot;word=meaning&quot; (split at the first &quot;=&quot;).
-- Percent-encode spaces as %20 and avoid the characters &amp; # | = inside words/meanings
-  (replace them, e.g. use &quot;/&quot; or &quot;;&quot; in meanings).
-- Example:
-  https://aicehub.com/#/new?t=3%EA%B3%BC%20%EB%8B%A8%EC%96%B4&amp;w=apple=%EC%82%AC%EA%B3%BC|look%20after=~%EC%9D%84%20%EB%8F%8C%EB%B3%B4%EB%8B%A4
-  (Unencoded Korean also works in most browsers: https://aicehub.com/#/new?t=3과 단어&amp;w=apple=사과|look after=~을 돌보다)
+&lt;ENCODED&gt; = percent-encoding of this text:  title|word=meaning|word=meaning|...
+- The first item (without &quot;=&quot;) is the word-set title. Items are separated by &quot;|&quot;, each item is &quot;word=meaning&quot;.
+- Percent-encode EVERYTHING except letters and digits (encodeURIComponent):
+  spaces, Korean, | = ; , ~ ( ) / and so on. Do not leave &quot;(&quot; &quot;)&quot; &quot;|&quot; &quot;#&quot; &quot;&amp;&quot; unencoded —
+  chat apps and redirect pages cut or break such links.
+- Keep meanings short: drop English synonyms in parentheses like &quot;(/ worthless)&quot;. Do not use = | &amp; # inside a word or meaning.
+- Example text:  3과 단어|deliver=배달하다; 넘겨주다|useless=쓸모없는|all of a sudden=갑자기|along with=~과 함께
+  Example link:  https://aicehub.com/?w=3%EA%B3%BC%20%EB%8B%A8%EC%96%B4%7Cdeliver%3D%EB%B0%B0%EB%8B%AC%ED%95%98%EB%8B%A4%3B%20%EB%84%98%EA%B2%A8%EC%A3%BC%EB%8B%A4%7Cuseless%3D%EC%93%B8%EB%AA%A8%EC%97%86%EB%8A%94%7Call%20of%20a%20sudden%3D%EA%B0%91%EC%9E%90%EA%B8%B0%7Calong%20with%3D~%EA%B3%BC%20%ED%95%A8%EA%BB%98
 - Keep the link under about 6,000 characters (~100 words). For more words, make several links.
+- Show the link as plain text (or in a code block) as well, so the user can copy it if tapping does not work.
+- If a &quot;Redirect notice&quot; (리디렉션 알림) page appears, the user taps the aicehub.com link on that page once more.
+
+Also give the user the plain list below the link, one per line as &quot;word - meaning&quot;.
+The user can paste it in the app: 새 단어장 &gt; &quot;여러 줄 한 번에 붙여넣기&quot;.
+(Older link form https://aicehub.com/#/new?t=&lt;title&gt;&amp;w=&lt;word&gt;=&lt;meaning&gt;|... still works.)
 </pre>
 </main>
 </body>

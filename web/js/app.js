@@ -474,20 +474,25 @@ function confirmSpell(editor) {
 
 const MAX_PHOTOS = 10;
 
-// 가져오기 링크: #/new?t=제목&w=apple=사과|borrow=빌리다  (AI가 만들어 주는 링크, 항목 구분은 | 또는 줄바꿈)
+// 가져오기 링크 (AI가 만들어 주는 링크). 항목 구분은 | 또는 줄바꿈, 각 항목은 "단어=뜻".
+//   https://aicehub.com/?w=제목|apple=사과|borrow=빌리다     ('#' 없는 형식 - 시작할 때 아래 형식으로 바뀐다)
+//   https://aicehub.com/#/new?t=제목&w=apple=사과|borrow=빌리다
+// '=' 가 없는 맨 앞 항목은 제목으로 쓴다.
 function parseImport(w) {
-  return String(w || '')
-    .split(/\||\n/)
+  const parts = String(w || '').split(/\||\n/).map((x) => x.trim()).filter(Boolean);
+  const title = parts.length && !/[=\t]/.test(parts[0]) ? parts.shift() : '';
+  const words = parts
     .map((x) => {
       const i = x.search(/[=\t]/);
       return i > 0 ? { word: x.slice(0, i).trim(), meaning: x.slice(i + 1).trim() } : null;
     })
     .filter((x) => x && x.word && x.meaning)
     .slice(0, 300);
+  return { title, words };
 }
 
 async function viewNew({ query = {} } = {}) {
-  const imported = parseImport(query.w);
+  const { title: importTitle, words: imported } = parseImport(query.w);
   let images = []; // 올린 사진 (data URL)
   let readCount = 0; // 앞에서부터 몇 장까지 단어를 읽었는지
   const edgeWords = new Set(); // 사진 맨 위 줄(반쯤 잘리기 쉬움)에서 읽은 단어
@@ -520,7 +525,7 @@ async function viewNew({ query = {} } = {}) {
 
   let editor = mountEditor(document.getElementById('editor'), imported.length ? imported : [{ word: '', meaning: '' }]);
   if (imported.length) {
-    document.getElementById('title').value = String(query.t || '').slice(0, 60);
+    document.getElementById('title').value = String(query.t || importTitle || '').slice(0, 60);
     toast(`단어 ${imported.length}개를 가져왔어요. 확인하고 저장해 주세요.`);
   }
   const $file = document.getElementById('file');
@@ -1319,6 +1324,14 @@ async function checkNewVersion() {
 }
 
 (async () => {
+  // '#' 없는 가져오기 링크(?w=...)는 새 단어장 화면 주소로 바꾼다.
+  // 메신저·구글 중간 페이지를 거치면 '#' 뒤가 잘리는 경우가 있어서 이 형식을 권한다.
+  const sp = new URLSearchParams(location.search);
+  if (sp.has('w')) {
+    const qs = new URLSearchParams({ w: sp.get('w') });
+    if (sp.get('t')) qs.set('t', sp.get('t'));
+    history.replaceState(null, '', `${location.pathname}#/new?${qs}`);
+  }
   checkNewVersion();
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkNewVersion());
   try {
