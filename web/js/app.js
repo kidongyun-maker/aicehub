@@ -2,16 +2,32 @@
 import * as db from './db.js';
 import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js';
 import { AI_EXTRACT_ENABLED } from './config.js';
+import { voiceSupported, listen, toSpelling } from './voice.js';
 
 const $app = document.getElementById('app');
 const state = { me: null, passRate: 80 };
 
 const STEP_INFO = {
-  learn: { no: 1, name: '단어 암기', desc: '카드를 넘기며 단어와 뜻을 외워요' },
-  quiz: { no: 2, name: '뜻 맞추기', desc: '5개 보기 중 알맞은 뜻을 골라요' },
-  spell: { no: 3, name: '스펠링 맞추기', desc: '섞인 알파벳을 순서대로 눌러요' },
-  final: { no: 4, name: '최종 테스트', desc: '뜻·스펠링을 섞어서 시험 봐요' },
+  learn: { no: 1, name: '단어 암기', short: '암기', desc: '카드를 넘기며 단어와 뜻을 외워요' },
+  quiz: { no: 2, name: '뜻 맞추기', short: '뜻', desc: '5개 보기 중 알맞은 뜻을 골라요' },
+  spell: { no: 3, name: '스펠링 맞추기', short: '스펠링', desc: '섞인 알파벳을 순서대로 눌러요' },
+  meaning_write: { no: 4, name: '뜻 직접 쓰기', short: '뜻 쓰기', desc: '영어 단어를 보고 뜻을 직접 써요 (🎤 말로도 돼요)' },
+  spell_write: { no: 5, name: '스펠링 직접 쓰기', short: '스펠링 쓰기', desc: '뜻을 보고 영어 단어를 직접 써요 (🎤 말로도 돼요)' },
+  final: { no: 6, name: '최종 테스트', short: '최종', desc: '뜻·스펠링을 섞어서 시험 봐요' },
 };
+const STEP_ORDER = ['learn', 'quiz', 'spell', 'meaning_write', 'spell_write', 'final'];
+const TEST_STEPS = STEP_ORDER.slice(1);
+const NUM = ['', '①', '②', '③', '④', '⑤', '⑥'];
+
+// 뜻 직접 쓰기 채점 - DB 함수 meaning_matches 와 같은 규칙 (화면에 바로 보여 주기용, 최종 채점은 DB)
+// 뜻 중 하나만 맞게 써도 정답. 띄어쓰기·~·괄호 무시, '하다' 차이 허용.
+function meaningMatches(answer, meaning) {
+  const strip = (t) => t.replace(/[\s~·.,!?'"()[\]-]/g, '').toLowerCase();
+  const forms = (t) => [strip(t), strip(t.replace(/\([^)]*\)/g, ''))];
+  const parts = (t) => String(t ?? '').split(/[,;/]/).flatMap(forms).filter(Boolean);
+  const means = parts(meaning);
+  return parts(answer).some((a) => means.some((m) => a === m || a + '하다' === m || a === m + '하다'));
+}
 
 // ---------- 유틸 ----------
 
@@ -98,17 +114,13 @@ async function resizeImage(file, max = 1600) {
   }
 }
 
-// 학습 단계 잠금: 이전 단계를 한 번 이상 끝까지 해야 다음 단계가 열린다.
+// 학습 단계: 잠금 없이 어느 단계든 바로 할 수 있다(건너뛰기 가능).
+// current = 아직 안 한 첫 단계 (추천 표시용)
 function stepState(summary) {
-  const done = {
-    learn: Boolean(summary.learnedAt),
-    quiz: Boolean(summary.quiz),
-    spell: Boolean(summary.spell),
-    final: Boolean(summary.passed),
-  };
-  const unlocked = { learn: true, quiz: done.learn, spell: done.quiz, final: done.spell };
-  const current = ['learn', 'quiz', 'spell', 'final'].find((k) => unlocked[k] && !done[k]) || null;
-  return { done, unlocked, current };
+  const done = { learn: Boolean(summary.learnedAt), final: Boolean(summary.passed) };
+  for (const k of TEST_STEPS) if (k !== 'final') done[k] = Boolean(summary[k]);
+  const current = STEP_ORDER.find((k) => !done[k]) || null;
+  return { done, current };
 }
 
 function chipsFor(summary) {
@@ -117,12 +129,13 @@ function chipsFor(summary) {
   return `
     <div class="chips">
       <span class="chip ${summary.learnedAt ? 'done' : ''}">① 암기 ${summary.learnedAt ? '✓' : '–'}</span>
-      <span class="chip ${cls(summary.quiz)}">② 뜻 ${pct(summary.quiz)}</span>
-      <span class="chip ${cls(summary.spell)}">③ 스펠링 ${pct(summary.spell)}</span>
+      ${['quiz', 'spell', 'meaning_write', 'spell_write']
+        .map((k) => `<span class="chip ${cls(summary[k])}">${NUM[STEP_INFO[k].no]} ${STEP_INFO[k].short} ${pct(summary[k])}</span>`)
+        .join('')}
       ${
         summary.passed
-          ? `<span class="chip pass">④ 통과 ${summary.final.lastAccuracy}%</span>`
-          : `<span class="chip ${cls(summary.final)}">④ 최종 ${pct(summary.final)}</span>`
+          ? `<span class="chip pass">⑥ 통과 ${summary.final.lastAccuracy}%</span>`
+          : `<span class="chip ${cls(summary.final)}">⑥ 최종 ${pct(summary.final)}</span>`
       }
     </div>`;
 }
@@ -137,7 +150,7 @@ const routes = [
   [/^\/set\/([a-f0-9-]{36})$/, viewSet],
   [/^\/set\/([a-f0-9-]{36})\/edit$/, viewEdit],
   [/^\/set\/([a-f0-9-]{36})\/learn$/, viewLearn],
-  [/^\/set\/([a-f0-9-]{36})\/run\/(quiz|spell|final)$/, viewRun],
+  [/^\/set\/([a-f0-9-]{36})\/run\/(quiz|spell|meaning_write|spell_write|final)$/, viewRun],
   [/^\/set\/([a-f0-9-]{36})\/result\/([a-f0-9-]{36})$/, viewResult],
 ];
 
@@ -634,10 +647,9 @@ async function viewSet({ params: [id], query, isCurrent }) {
 
   const stepRow = (key) => {
     const info = STEP_INFO[key];
-    const locked = !st.unlocked[key];
-    const cls = st.done[key] ? 'done' : st.current === key ? 'current' : locked ? 'locked' : '';
+    const cls = st.done[key] ? 'done' : st.current === key ? 'current' : '';
     const href = key === 'learn' ? `#/set/${id}/learn` : `#/set/${id}/run/${key}`;
-    const label = locked ? '🔒' : st.done[key] || summary[key] ? '다시' : '시작';
+    const label = st.done[key] || summary[key] ? '다시' : '시작';
     return `
       <div class="card step ${cls}">
         <div class="num">${st.done[key] ? '✓' : info.no}</div>
@@ -646,11 +658,7 @@ async function viewSet({ params: [id], query, isCurrent }) {
           <div class="desc">${esc(stepDesc(key))}</div>
         </div>
         ${
-          isSelf
-            ? locked
-              ? `<button class="btn small" disabled title="이전 단계를 먼저 끝내 주세요">🔒</button>`
-              : `<a class="btn small ${st.current === key ? 'primary' : ''}" href="${href}">${label}</a>`
-            : ''
+          isSelf ? `<a class="btn small ${st.current === key ? 'primary' : ''}" href="${href}">${label}</a>` : ''
         }
       </div>`;
   };
@@ -669,8 +677,8 @@ async function viewSet({ params: [id], query, isCurrent }) {
     }
     ${!isSelf ? `<div class="card small" style="margin-bottom:12px">👀 <b>${esc(progress.user.name)}</b>의 학습 기록을 보고 있어요.</div>` : ''}
     ${set.hasImage ? `<div class="thumbs" id="thumbs" style="margin-bottom:12px"></div>` : ''}
-    <div class="section-title" style="margin-top:8px">학습 단계</div>
-    ${['learn', 'quiz', 'spell', 'final'].map(stepRow).join('')}
+    <div class="section-title" style="margin-top:8px">학습 단계 <span class="small muted" style="font-weight:400">· 원하는 단계부터 해도 돼요</span></div>
+    ${STEP_ORDER.map(stepRow).join('')}
 
     <div class="section-title">시험 기록</div>
     <div class="card history">
@@ -851,9 +859,10 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
   }
 
   // 최종 테스트는 뜻/스펠링 문제를 반반 섞는다.
+  const TYPE_OF = { quiz: 'meaning', spell: 'spell', meaning_write: 'meaning_write', spell_write: 'spell_write' };
   const types = step === 'final'
     ? shuffle(words.map((_, i) => (i % 2 === 0 ? 'meaning' : 'spell')))
-    : words.map(() => (step === 'spell' ? 'spell' : 'meaning'));
+    : words.map(() => TYPE_OF[step]);
   const questions = shuffle(words).map((w, i) => ({
     word: w,
     type: types[i],
@@ -1032,11 +1041,88 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
     fb.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
+  // 4·5단계: 직접 쓰기 (키보드 또는 🎤 음성)
+  const drawWrite = (q) => {
+    const isSpell = q.type === 'spell_write';
+    let stopListening = null;
+    $app.innerHTML = `
+      ${header()}
+      <div class="question">
+        <div class="label">${esc(title)} — ${isSpell ? '뜻에 맞는 영어 단어를 쓰세요' : '단어의 뜻을 한국어로 쓰세요'}</div>
+        <div class="prompt ${isSpell ? 'ko' : ''}">${esc(isSpell ? q.word.meaning : q.word.word)}</div>
+        ${isSpell ? '' : '<button class="speak" id="say" aria-label="발음 듣기" style="margin-top:8px">🔊</button>'}
+      </div>
+      <form class="write-box" id="writeForm" autocomplete="off">
+        <div class="write-row">
+          <input type="text" id="answer" lang="${isSpell ? 'en' : 'ko'}" enterkeyhint="done"
+            placeholder="${isSpell ? '영어 단어' : '뜻 (여러 개 중 하나만 써도 돼요)'}"
+            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          ${voiceSupported ? `<button type="button" class="btn mic" id="mic" aria-label="말로 입력하기">🎤</button>` : ''}
+        </div>
+        <div class="small muted" id="voiceNote" style="min-height:20px;margin-top:6px"></div>
+        <div class="runner-actions">
+          <button type="button" class="btn" id="skip">모르겠어요</button>
+          <button type="submit" class="btn primary" id="ok">확인</button>
+        </div>
+      </form>
+      <div id="fb"></div>`;
+    bindQuit();
+    const $in = document.getElementById('answer');
+    const $note = document.getElementById('voiceNote');
+    if (!isSpell) {
+      document.getElementById('say').onclick = () => speak(q.word.word);
+      speak(q.word.word);
+    }
+    $in.focus();
+
+    const finish = (answer) => {
+      if (answers.length > idx) return;
+      stopListening?.();
+      const correct = isSpell
+        ? answer.trim().replace(/\s+/g, ' ').toLowerCase() === q.word.word.trim().replace(/\s+/g, ' ').toLowerCase()
+        : meaningMatches(answer, q.word.meaning);
+      answers.push({ wordId: q.word.id, type: q.type, answer });
+      $in.disabled = true;
+      $in.classList.add(correct ? 'correct' : 'wrong');
+      document.querySelectorAll('#writeForm button').forEach((b) => (b.disabled = true));
+      if (isSpell) speak(q.word.word);
+      showFeedback(correct, isSpell ? q.word.word : `${q.word.word} = ${q.word.meaning}`);
+    };
+    document.getElementById('writeForm').onsubmit = (e) => {
+      e.preventDefault();
+      if (!$in.value.trim()) return $in.focus();
+      finish($in.value.trim());
+    };
+    document.getElementById('skip').onclick = () => finish('');
+
+    const $mic = document.getElementById('mic');
+    if ($mic)
+      $mic.onclick = () => {
+        if (stopListening) return stopListening();
+        $mic.classList.add('on');
+        $note.textContent = isSpell ? '듣고 있어요… 단어를 말하거나 한 글자씩 불러 주세요 (A, P, P, L, E)' : '듣고 있어요… 뜻을 말해 주세요';
+        stopListening = listen({
+          lang: isSpell ? 'en-US' : 'ko-KR',
+          onText: (t) => ($in.value = isSpell ? toSpelling(t) : t),
+          onEnd: (t) => {
+            stopListening = null;
+            $mic.classList.remove('on');
+            if (t) {
+              $in.value = isSpell ? toSpelling(t) : t;
+              $note.textContent = '맞으면 확인을 누르세요. 고칠 게 있으면 직접 고쳐도 돼요.';
+            } else if ($note.textContent.startsWith('듣고')) $note.textContent = '';
+          },
+          onError: (msg) => ($note.textContent = msg),
+        });
+      };
+  };
+
   const draw = () => {
     window.onkeydown = null;
     const q = questions[idx];
     if (q.type === 'meaning') drawMeaning(q);
-    else drawSpell(q);
+    else if (q.type === 'spell') drawSpell(q);
+    else drawWrite(q);
   };
   draw();
 }
@@ -1062,15 +1148,16 @@ async function viewResult({ params: [id, attemptId], query, isCurrent }) {
   if (attempt.step === 'final' && attempt.passed !== null) verdict = attempt.passed ? '🏆 통과했어요!' : `아쉬워요, ${state.passRate}% 이상이면 통과예요`;
   else verdict = pct === 100 ? '💯 완벽해요!' : good ? '👍 잘했어요!' : '💪 조금만 더 연습해요';
 
-  const nextStep = { quiz: 'spell', spell: 'final' }[attempt.step];
+  const nextStep = { quiz: 'spell', spell: 'meaning_write', meaning_write: 'spell_write', spell_write: 'final' }[attempt.step];
+  const TYPE_LABEL = { meaning: '뜻 고르기', spell: '스펠링', meaning_write: '뜻 쓰기', spell_write: '스펠링 쓰기' };
   const item = (i) => `
     <li class="${i.correct ? 'ok' : 'ng'}">
       <span class="mark">${i.correct ? 'O' : 'X'}</span>
       <div class="body">
         <div class="w">${esc(i.word)} <span class="muted" style="font-weight:400">· ${esc(i.meaning)}</span></div>
         <div class="detail">
-          ${i.type === 'spell' ? '스펠링' : '뜻 고르기'}
-          ${i.correct ? '' : ` · 고른 답: <span class="yours">${esc(i.answer)}</span>`}
+          ${TYPE_LABEL[i.type] || '뜻 고르기'}
+          ${i.correct ? (i.type === 'meaning_write' ? ` · 쓴 답: ${esc(i.answer)}` : '') : i.answer ? ` · ${i.type?.endsWith('_write') ? '쓴' : '고른'} 답: <span class="yours">${esc(i.answer)}</span>` : ' · 모르겠어요'}
         </div>
       </div>
       <button class="speak" data-say="${esc(i.word)}" aria-label="발음 듣기" style="width:36px;height:36px;font-size:16px">🔊</button>

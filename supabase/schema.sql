@@ -72,7 +72,7 @@ create table if not exists public.attempts (
   id        uuid primary key default gen_random_uuid(),
   set_id    uuid not null references public.word_sets on delete cascade,
   user_code text not null,
-  step      text not null check (step in ('quiz', 'spell', 'final')),
+  step      text not null check (step in ('quiz', 'spell', 'meaning_write', 'spell_write', 'final')),
   mode      text not null check (mode in ('full', 'retry')),
   at        timestamptz not null default now(),
   total     int not null,
@@ -115,6 +115,38 @@ drop policy if exists attempts_read on public.attempts;
 create policy attempts_read on public.attempts for select to authenticated using (user_code = my_code() or is_parent());
 
 -- ---------- 채점 (서버에서 정답 비교) ----------
+-- (예전에 만든 프로젝트도 맞춰지도록 단계 제약을 다시 만든다)
+-- 1) 시험 단계 종류에 meaning_write, spell_write 추가
+alter table public.attempts drop constraint if exists attempts_step_check;
+alter table public.attempts add constraint attempts_step_check
+  check (step in ('quiz', 'spell', 'meaning_write', 'spell_write', 'final'));
+
+-- 2) 뜻 직접 쓰기 채점: 뜻 중 하나만 맞게 써도 정답
+--    "성공하다; 뒤를 잇다" → "성공하다" 도, "뒤를 잇다" 도 정답
+--    띄어쓰기·~·괄호는 무시, "(필름을) 현상하다" → "현상하다" 도 "필름을 현상하다" 도 정답
+--    "연락" ↔ "연락하다" 처럼 '하다' 차이도 정답
+create or replace function public.meaning_matches(p_answer text, p_meaning text)
+returns boolean language sql immutable as $$
+  with
+  ans as (
+    select lower(regexp_replace(a, '[\s~·.,!?''"()\[\]-]', '', 'g')) as plain,
+           lower(regexp_replace(regexp_replace(a, '\([^)]*\)', '', 'g'), '[\s~·.,!?''"()\[\]-]', '', 'g')) as bare
+    from regexp_split_to_table(coalesce(p_answer, ''), '[,;/]') a
+  ),
+  mean as (
+    select lower(regexp_replace(m, '[\s~·.,!?''"()\[\]-]', '', 'g')) as plain,
+           lower(regexp_replace(regexp_replace(m, '\([^)]*\)', '', 'g'), '[\s~·.,!?''"()\[\]-]', '', 'g')) as bare
+    from regexp_split_to_table(coalesce(p_meaning, ''), '[,;/]') m
+  )
+  select exists (
+    select 1
+    from ans a, mean m, lateral (values (a.plain), (a.bare)) x(av), lateral (values (m.plain), (m.bare)) y(mv)
+    where x.av <> '' and y.mv <> ''
+      and (x.av = y.mv or x.av || '하다' = y.mv or x.av = y.mv || '하다')
+  )
+$$;
+
+-- 3) 채점 함수: 새 단계와 문제 유형 처리
 create or replace function public.submit_attempt(p_set_id uuid, p_step text, p_mode text, p_answers jsonb)
 returns public.attempts
 language plpgsql security definer set search_path = public as $$
@@ -134,7 +166,7 @@ declare
   v_row     public.attempts;
 begin
   if v_code is null then raise exception '로그인이 필요합니다.'; end if;
-  if p_step not in ('quiz', 'spell', 'final') then raise exception '잘못된 단계입니다.'; end if;
+  if p_step not in ('quiz', 'spell', 'meaning_write', 'spell_write', 'final') then raise exception '잘못된 단계입니다.'; end if;
   select * into v_set from public.word_sets where id = p_set_id;
   if not found then raise exception '단어장을 찾을 수 없습니다.'; end if;
 
@@ -142,10 +174,12 @@ begin
     w := null;
     select x into w from jsonb_array_elements(v_set.words) x where x->>'id' = a->>'wordId' limit 1;
     continue when w is null;
-    v_type := case when a->>'type' = 'spell' then 'spell' else 'meaning' end;
+    v_type := case when a->>'type' in ('spell', 'meaning_write', 'spell_write') then a->>'type' else 'meaning' end;
     v_ans  := left(coalesce(a->>'answer', ''), 200);
-    if v_type = 'spell' then
+    if v_type in ('spell', 'spell_write') then
       v_ok := lower(regexp_replace(trim(v_ans), '\s+', ' ', 'g')) = lower(regexp_replace(trim(w->>'word'), '\s+', ' ', 'g'));
+    elsif v_type = 'meaning_write' then
+      v_ok := public.meaning_matches(v_ans, w->>'meaning');
     else
       v_ok := trim(v_ans) = w->>'meaning';
     end if;
@@ -171,6 +205,7 @@ end $$;
 
 revoke all on function public.submit_attempt(uuid, text, text, jsonb) from public, anon;
 grant execute on function public.submit_attempt(uuid, text, text, jsonb) to authenticated;
+grant execute on function public.meaning_matches(text, text) to authenticated;
 
 -- ---------- 사진 저장소 ----------
 insert into storage.buckets (id, name, public)

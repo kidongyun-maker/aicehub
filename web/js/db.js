@@ -9,7 +9,7 @@ export const USERS = {
   9585: { code: '9585', role: 'student', name: '학생' },
   5238: { code: '5238', role: 'parent', name: '부모' },
 };
-const STEPS = ['quiz', 'spell', 'final'];
+const STEPS = ['quiz', 'spell', 'meaning_write', 'spell_write', 'final'];
 
 // 사용자 번호 → Supabase 로그인 계정 (Supabase는 비밀번호 6자 이상이 필요해서 번호를 감싼다)
 const emailOf = (code) => `u${code}@example.com`;

@@ -424,3 +424,13 @@ details.bulk textarea { min-height: 120px; margin-top: 8px; }
 .photo-strip .x { position: absolute; right: 4px; top: 4px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: #000a; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
 .thumbs.many { display: flex; gap: 8px; overflow-x: auto; }
 .thumbs.many .thumb { flex: 0 0 auto; width: 140px; height: 180px; max-height: none; }
+
+/* 4·5단계: 직접 쓰기 */
+.write-box { margin-bottom: 8px; }
+.write-row { display: flex; gap: 8px; }
+.write-row input { flex: 1; min-width: 0; font-size: 20px; min-height: 56px; text-align: center; }
+.write-row input.correct { border-color: var(--good); background: var(--good-soft); }
+.write-row input.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.btn.mic { width: 56px; min-height: 56px; padding: 0; font-size: 24px; flex: 0 0 auto; }
+.btn.mic.on { background: var(--bad); border-color: var(--bad); color: #fff; animation: mic-pulse 1s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { box-shadow: 0 0 0 8px var(--bad-soft); } }
