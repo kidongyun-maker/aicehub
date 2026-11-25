@@ -546,6 +546,7 @@ const norm = (t) => String(t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 // 뜻이 적힌 유성이 떨어진다. 아래 글자 키를 눌러 영어 단어를 쓰면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
 // 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 키로 쓴다. A~Z 전부가 아니라 지금 떨어지는 단어에 든 글자와
 // 가짜 글자 몇 개만 알파벳 순서로 보여 준다. 띄어쓰기·하이픈 같은 기호는 자동으로 채운다.
+// 맨 아래 유성부터 칠 필요는 없다. 떨어지는 유성 중 아무거나 먼저 써도 된다.
 // 떨어지는 어떤 단어와도 안 맞는 글자를 누르면 콤보가 끊기고 잠깐 못 누른다.
 // 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반).
 
@@ -614,17 +615,22 @@ export function playRain(ctx) {
   const showTyped = () => ($typedText.textContent = typed);
 
   // 키 만들기: 떨어지는 단어들의 글자 + 가짜 글자. 가짜 글자는 되도록 그대로 둬서 키가 덜 바뀌게 한다.
+  // 단어를 쓰는 중에는 키를 빼지 않는다 (다른 유성이 터지거나 떨어져도 누르던 키 자리가 그대로).
   let keys = [];
   let decoys = [];
   const refreshKeys = () => {
     if (!drops.length) return;
     const need = new Set(drops.flatMap((d) => [...norm(d.w.word)].filter(isLetter)));
-    decoys = decoys.filter((c) => !need.has(c));
-    const want = Math.max(RAIN_DECOYS, RAIN_MIN_KEYS - need.size);
-    const rest = shuffle(ABC.filter((c) => !need.has(c) && !decoys.includes(c)));
-    while (decoys.length < want && rest.length) decoys.push(rest.pop());
-    decoys = decoys.slice(0, want);
-    const next = [...need, ...decoys].sort();
+    let next;
+    if (typed) next = [...new Set([...keys, ...need])].sort();
+    else {
+      decoys = decoys.filter((c) => !need.has(c));
+      const want = Math.max(RAIN_DECOYS, RAIN_MIN_KEYS - need.size);
+      const rest = shuffle(ABC.filter((c) => !need.has(c) && !decoys.includes(c)));
+      while (decoys.length < want && rest.length) decoys.push(rest.pop());
+      decoys = decoys.slice(0, want);
+      next = [...need, ...decoys].sort();
+    }
     if (next.join('') === keys.join('')) return;
     const old = new Set(keys);
     keys = next;
@@ -808,8 +814,8 @@ export function playRain(ctx) {
   const tryFire = () => {
     const d = drops.filter((x) => norm(x.w.word) === typed).sort((p, q) => q.y - p.y)[0];
     if (!d) return false;
-    fire(d);
     typed = '';
+    fire(d);
     return true;
   };
   const wrongKey = (b) => {
@@ -836,6 +842,7 @@ export function playRain(ctx) {
     if (k === 'back') {
       // 자동으로 채운 기호까지 한 번에 지운다
       typed = typed.slice(0, -1).replace(/[^a-z]+$/, '');
+      if (!typed) refreshKeys(); // 다 지우면 그동안 미뤄 둔 키 정리
       return showTyped();
     }
     const next = typed + k;
