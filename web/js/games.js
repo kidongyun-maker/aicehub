@@ -545,7 +545,7 @@ const norm = (t) => String(t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 // ---------- 3. 단어 유성 막기 ----------
 // 뜻이 적힌 유성이 떨어진다. 아래 글자 키를 눌러 영어 단어를 쓰면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
 // 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 키로 쓴다. 떨어지는 유성마다 키 한 줄씩:
-// 그 단어에 든 글자 + 가짜 글자 2개를 알파벳 순서로 보여 주고, 줄 색은 유성 색과 같다.
+// 그 단어에 든 글자만 알파벳 순서로 보여 주고(가짜 글자 없음), 줄 색은 유성 색과 같다.
 // 어느 줄(유성)부터 써도 된다. 쓰는 글자는 유성 위에 f a r _ _ _ 처럼 보인다. 띄어쓰기·하이픈은 자동으로 채운다.
 // 틀린 글자를 누르면 콤보가 끊기고 그 줄만 잠깐 못 누른다.
 // 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반).
@@ -555,9 +555,6 @@ const RAIN_LEVEL_EVERY = 6; // 6개 맞힐 때마다 레벨 업
 const RAIN_LANES = [17, 50, 83]; // 유성이 떨어지는 세로줄 (가로 %)
 const RAIN_MAX_DROPS = 3; // 동시에 떨어지는 유성 = 키 줄 수 최대
 const RAIN_LOCK = 0.6; // 틀린 글자를 누르면 잠깐(초) 그 줄을 못 누름
-const ABC = 'abcdefghijklmnopqrstuvwxyz'.split('');
-const RAIN_DECOYS = 2; // 줄마다 섞는 가짜 글자 수
-const RAIN_MIN_KEYS = 5; // 글자가 적은 단어일 때도 최소 이만큼은 키를 보여 준다
 const RAIN_ROW_H = 52; // 키 한 줄 높이(px, 줄 간격 포함) — 하늘 크기 계산용
 const METEORS = [['#ff9f1c', '#ff5a5f'], ['#7b91ff', '#9b5de5'], ['#2ec4b6', '#3a86ff'], ['#f15bb5', '#9b5de5'], ['#ffd23f', '#ff9f1c']];
 
@@ -581,8 +578,9 @@ export function playRain(ctx) {
   let lastTyped = null; // 실제 키보드 입력용: 마지막으로 쓰던 유성
   const GROUND = 58;
 
-  const fallSeconds = () => Math.max(4.2, 11 * Math.pow(0.91, level - 1)); // 위에서 땅까지 걸리는 시간
-  const spawnGap = () => Math.max(1.2, 3.1 - (level - 1) * 0.25);
+  // 위에서 땅까지 걸리는 시간: 처음 20초, 레벨마다 조금씩 빨라지지만 10초보다 빨라지지 않는다
+  const fallSeconds = () => Math.max(10, 20 * Math.pow(0.95, level - 1));
+  const spawnGap = () => Math.max(3, 5 - (level - 1) * 0.25);
   const maxDrops = () => Math.min(set.words.length, 2 + Math.floor(level / 3), RAIN_MAX_DROPS);
 
   $app.innerHTML = `
@@ -658,12 +656,9 @@ export function playRain(ctx) {
     d.el.querySelector('.r-hint').textContent = d.typed || d.hinted ? progressOf(d) : '';
   };
 
-  // 유성 하나에 키 한 줄: 그 단어 글자 + 가짜 글자, 알파벳 순서. 마지막에 지우기 키.
+  // 유성 하나에 키 한 줄: 그 단어에 든 글자만 알파벳 순서로. 마지막에 지우기 키.
   const makeRow = (d, c1, c2) => {
-    const need = [...new Set([...d.ans].filter(isLetter))];
-    const want = Math.max(RAIN_DECOYS, RAIN_MIN_KEYS - need.length);
-    const decoys = shuffle(ABC.filter((c) => !need.includes(c))).slice(0, want);
-    const keys = [...need, ...decoys].sort();
+    const keys = [...new Set([...d.ans].filter(isLetter))].sort();
     const row = document.createElement('div');
     row.className = 'r-row new';
     row.style.cssText = `--c1:${c1};--c2:${c2};--n:${keys.length + 1 <= 10 ? keys.length + 1 : Math.ceil((keys.length + 1) / 2)}`;
