@@ -1,11 +1,11 @@
-// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(스펠링 직접 쓰기), 보스 배틀(전체 복습)
+// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(뜻 보고 단어 고르기), 보스 배틀(전체 복습)
 // 게임 화면은 body.game-mode 로 앱과 다른 '게임' 디자인을 쓴다 (밤하늘 배경, 카드, 장난감 블록, 효과음).
 // 최고 기록은 기기(브라우저)에 저장한다 — 시험 기록과 달리 서버에 남기지 않는다.
 
 export const GAMES = {
   match: { name: '짝 맞추기 타임어택', short: '짝 맞추기', icon: '🃏', desc: '영어와 뜻 카드의 짝을 빨리 찾아요' },
   spell: { name: '철자 블록 러시', short: '철자 블록', icon: '🧱', desc: '60초 동안 철자를 최대한 많이 맞혀요' },
-  rain: { name: '단어 유성 막기', short: '유성 막기', icon: '☄️', desc: '떨어지는 뜻을 보고 영어 단어를 쳐서 막아요' },
+  rain: { name: '단어 유성 막기', short: '유성 막기', icon: '☄️', desc: '떨어지는 뜻을 보고 아래 영어 단어를 눌러 막아요' },
   boss: { name: '보스 배틀', short: '보스 배틀', icon: '⚔️', desc: '단어장 전체로 보스를 물리쳐요' },
 };
 
@@ -543,12 +543,15 @@ const heartsHtml = (n, max) =>
 const norm = (t) => String(t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 // ---------- 3. 단어 유성 막기 ----------
-// 뜻이 적힌 유성이 떨어진다. 영어 단어를 쳐서 맞히면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
-// 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반).
+// 뜻이 적힌 유성이 떨어진다. 아래 단어판에서 맞는 영어 단어를 누르면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
+// 휴대폰 키보드가 하늘을 가리지 않도록 타이핑 대신 단어판(정답 + 가짜 단어)에서 고른다.
+// 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반). 틀린 단어를 누르면 콤보가 끊기고 잠깐 못 누른다.
 
 const RAIN_LIVES = 3;
 const RAIN_LEVEL_EVERY = 6; // 6개 맞힐 때마다 레벨 업
 const RAIN_LANES = [17, 50, 83]; // 유성이 떨어지는 세로줄 (가로 %)
+const RAIN_BOARD = 12; // 단어판에 늘어놓는 단어 수 (3칸 × 4줄)
+const RAIN_LOCK = 0.7; // 틀리게 누르면 잠깐(초) 못 누름
 const METEORS = [['#ff9f1c', '#ff5a5f'], ['#7b91ff', '#9b5de5'], ['#2ec4b6', '#3a86ff'], ['#f15bb5', '#9b5de5'], ['#ffd23f', '#ff9f1c']];
 
 export function playRain(ctx) {
@@ -569,6 +572,11 @@ export function playRain(ctx) {
   let spawnIn = 0;
   let fieldH = 400;
   const GROUND = 58;
+  // 단어판: 같은 철자는 한 번만. 떨어지는 유성의 정답은 항상 판에 있다.
+  const pool = [];
+  for (const w of set.words) if (!pool.some((p) => norm(p.word) === norm(w.word))) pool.push(w);
+  const board = shuffle(pool).slice(0, Math.min(RAIN_BOARD, pool.length));
+  let lockUntil = 0;
 
   const fallSeconds = () => Math.max(4.2, 11 * Math.pow(0.91, level - 1)); // 위에서 땅까지 걸리는 시간
   const spawnGap = () => Math.max(1.2, 3.1 - (level - 1) * 0.25);
@@ -590,21 +598,42 @@ export function playRain(ctx) {
       <div class="r-ground"><div class="r-city"></div></div>
       <div class="r-cannon" id="cannon"><i></i></div>
     </div>
-    <form class="r-input" id="form" autocomplete="off">
-      <input id="typed" type="text" lang="en" enterkeyhint="send" placeholder="영어 단어를 쳐서 막아요"
-        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-      <button class="r-fire" type="submit" aria-label="발사">🚀</button>
-    </form>`;
+    <div class="r-board" id="board"></div>`;
   bindMute();
   const $field = document.getElementById('field');
-  const $in = document.getElementById('typed');
+  const $board = document.getElementById('board');
   const $cannon = document.getElementById('cannon');
 
-  // 화면 높이에 맞춰 하늘 크기 조절 (휴대폰 키보드가 올라와도 입력칸이 보이게)
+  const slotHtml = (w, i) => `<button type="button" class="r-word" data-i="${i}" lang="en">${esc(w.word)}</button>`;
+  $board.innerHTML = board.map(slotHtml).join('');
+  const setSlot = (i, w) => {
+    board[i] = w;
+    const b = $board.children[i];
+    b.textContent = w.word;
+    b.classList.remove('new', 'wrong');
+    void b.offsetWidth;
+    b.classList.add('new');
+  };
+  const onBoard = (w) => board.some((b) => norm(b.word) === norm(w.word));
+  const isFalling = (w) => drops.some((d) => norm(d.w.word) === norm(w.word));
+  // 새 유성의 정답이 판에 없으면, 지금 떨어지지 않는 단어 칸 하나를 바꿔 넣는다
+  const putOnBoard = (w) => {
+    if (onBoard(w)) return;
+    const free = board.map((b, i) => i).filter((i) => !isFalling(board[i]));
+    if (free.length) setSlot(free[Math.floor(Math.random() * free.length)], w);
+  };
+  // 맞힌 칸은 판에 없던 다른 단어로 바꿔서 자리 외우기만으로 풀지 않게 한다
+  const refreshSlot = (i) => {
+    const rest = pool.filter((w) => !onBoard(w));
+    if (rest.length) setSlot(i, rest[Math.floor(Math.random() * rest.length)]);
+  };
+
+  // 화면 높이에 맞춰 하늘 크기 조절 (아래 단어판까지 한 화면에 보이게)
   const fit = () => {
     if (!isCurrent()) return window.visualViewport?.removeEventListener('resize', fit);
     const vh = window.visualViewport?.height || window.innerHeight;
-    const h = Math.round(Math.min(560, Math.max(230, vh - 250)));
+    const top = $field.getBoundingClientRect().top + window.scrollY;
+    const h = Math.round(Math.min(560, Math.max(230, vh - top - $board.offsetHeight - 24)));
     if (h === fieldH) return;
     drops.forEach((d) => (d.y *= h / fieldH));
     fieldH = h;
@@ -642,6 +671,7 @@ export function playRain(ctx) {
     const k = queue.findIndex((w) => !drops.some((d) => norm(d.w.word) === norm(w.word)));
     if (k < 0) return false;
     const [w] = queue.splice(k, 1);
+    putOnBoard(w);
     const lane = free[Math.floor(Math.random() * free.length)];
     const [c1, c2] = METEORS[spawned++ % METEORS.length];
     const el = document.createElement('div');
@@ -747,30 +777,31 @@ export function playRain(ctx) {
     requestAnimationFrame(frame);
   };
 
-  // 치는 동안 정답이 되면 바로 발사 (엔터 안 눌러도 됨). 여러 개면 가장 아래 것부터.
-  const tryFire = () => {
-    const v = norm($in.value);
-    if (!v || !running) return false;
-    const d = drops.filter((x) => norm(x.w.word) === v).sort((a, b) => b.y - a.y)[0];
-    if (!d) return false;
-    fire(d);
-    $in.value = '';
-    return true;
-  };
-  $in.oninput = tryFire;
-  document.getElementById('form').onsubmit = (e) => {
-    e.preventDefault();
-    if (!running || !$in.value.trim() || tryFire()) return;
-    // 떨어지는 단어 중에 없음
+  // 단어를 누르면 그 단어가 정답인 유성 중 가장 아래 것을 쏜다. 없으면 실수.
+  $board.onclick = (e) => {
+    const b = e.target.closest('.r-word');
+    if (!b || !running) return;
+    const now = performance.now();
+    if (now < lockUntil) return;
+    const i = Number(b.dataset.i);
+    const v = norm(board[i].word);
+    const d = drops.filter((x) => norm(x.w.word) === v).sort((p, q) => q.y - p.y)[0];
+    if (d) {
+      fire(d);
+      refreshSlot(i);
+      return;
+    }
     sfx('bad');
     if (combo) {
       combo = 0;
       showStats();
     }
-    $in.classList.remove('wrong');
-    void $in.offsetWidth;
-    $in.classList.add('wrong');
-    $in.select();
+    lockUntil = now + RAIN_LOCK * 1000;
+    b.classList.remove('wrong', 'new');
+    void b.offsetWidth;
+    b.classList.add('wrong');
+    $board.classList.add('locked');
+    setTimeout(() => $board.classList.remove('locked'), RAIN_LOCK * 1000);
   };
 
   const finish = () => {
@@ -800,7 +831,6 @@ export function playRain(ctx) {
     running = true;
     last = performance.now();
     spawnIn = 0;
-    $in.focus();
     requestAnimationFrame(frame);
   });
 }
