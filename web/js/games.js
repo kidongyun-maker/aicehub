@@ -1,11 +1,11 @@
-// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(알파벳 키로 스펠링 쓰기), 보스 배틀(전체 복습)
+// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(글자 블록으로 스펠링 쓰기), 보스 배틀(전체 복습)
 // 게임 화면은 body.game-mode 로 앱과 다른 '게임' 디자인을 쓴다 (밤하늘 배경, 카드, 장난감 블록, 효과음).
 // 최고 기록은 기기(브라우저)에 저장한다 — 시험 기록과 달리 서버에 남기지 않는다.
 
 export const GAMES = {
   match: { name: '짝 맞추기 타임어택', short: '짝 맞추기', icon: '🃏', desc: '영어와 뜻 카드의 짝을 빨리 찾아요' },
   spell: { name: '철자 블록 러시', short: '철자 블록', icon: '🧱', desc: '60초 동안 철자를 최대한 많이 맞혀요' },
-  rain: { name: '단어 유성 막기', short: '유성 막기', icon: '☄️', desc: '떨어지는 뜻을 보고 알파벳을 눌러 단어를 써서 막아요' },
+  rain: { name: '단어 유성 막기', short: '유성 막기', icon: '☄️', desc: '떨어지는 뜻을 보고 글자를 골라 단어를 써서 막아요' },
   boss: { name: '보스 배틀', short: '보스 배틀', icon: '⚔️', desc: '단어장 전체로 보스를 물리쳐요' },
 };
 
@@ -543,8 +543,9 @@ const heartsHtml = (n, max) =>
 const norm = (t) => String(t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 // ---------- 3. 단어 유성 막기 ----------
-// 뜻이 적힌 유성이 떨어진다. 아래 A~Z 키를 눌러 영어 단어를 쓰면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
-// 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 알파벳 키패드로 쓴다. 띄어쓰기·하이픈 같은 기호는 자동으로 채운다.
+// 뜻이 적힌 유성이 떨어진다. 아래 글자 키를 눌러 영어 단어를 쓰면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
+// 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 키로 쓴다. A~Z 전부가 아니라 지금 떨어지는 단어에 든 글자와
+// 가짜 글자 몇 개만 알파벳 순서로 보여 준다. 띄어쓰기·하이픈 같은 기호는 자동으로 채운다.
 // 떨어지는 어떤 단어와도 안 맞는 글자를 누르면 콤보가 끊기고 잠깐 못 누른다.
 // 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반).
 
@@ -553,6 +554,8 @@ const RAIN_LEVEL_EVERY = 6; // 6개 맞힐 때마다 레벨 업
 const RAIN_LANES = [17, 50, 83]; // 유성이 떨어지는 세로줄 (가로 %)
 const RAIN_LOCK = 0.6; // 틀린 글자를 누르면 잠깐(초) 못 누름
 const ABC = 'abcdefghijklmnopqrstuvwxyz'.split('');
+const RAIN_DECOYS = 2; // 키에 섞는 가짜 글자 수
+const RAIN_MIN_KEYS = 6; // 글자가 적은 단어일 때도 최소 이만큼은 키를 보여 준다
 const METEORS = [['#ff9f1c', '#ff5a5f'], ['#7b91ff', '#9b5de5'], ['#2ec4b6', '#3a86ff'], ['#f15bb5', '#9b5de5'], ['#ffd23f', '#ff9f1c']];
 
 export function playRain(ctx) {
@@ -578,7 +581,8 @@ export function playRain(ctx) {
 
   const fallSeconds = () => Math.max(4.2, 11 * Math.pow(0.91, level - 1)); // 위에서 땅까지 걸리는 시간
   const spawnGap = () => Math.max(1.2, 3.1 - (level - 1) * 0.25);
-  const maxDrops = () => Math.min(set.words.length, 2 + Math.floor(level / 2), 5);
+  // 동시에 떨어지는 유성은 최대 3개 (글자 키가 너무 많아지지 않게)
+  const maxDrops = () => Math.min(set.words.length, 2 + Math.floor(level / 3), 3);
 
   $app.innerHTML = `
     ${hud(
@@ -598,10 +602,7 @@ export function playRain(ctx) {
     </div>
     <div class="r-pad" id="pad">
       <div class="r-typed" id="typed"><span id="typedText"></span><i class="r-caret"></i></div>
-      <div class="r-keys" id="keys">
-        ${ABC.map((c) => `<button type="button" class="r-key" data-k="${c}">${c.toUpperCase()}</button>`).join('')}
-        <button type="button" class="r-key r-back" data-k="back" aria-label="지우기">⌫</button>
-      </div>
+      <div class="r-keys" id="keys"></div>
     </div>`;
   bindMute();
   const $field = document.getElementById('field');
@@ -609,7 +610,31 @@ export function playRain(ctx) {
   const $typed = document.getElementById('typed');
   const $typedText = document.getElementById('typedText');
   const $cannon = document.getElementById('cannon');
+  const $keys = document.getElementById('keys');
   const showTyped = () => ($typedText.textContent = typed);
+
+  // 키 만들기: 떨어지는 단어들의 글자 + 가짜 글자. 가짜 글자는 되도록 그대로 둬서 키가 덜 바뀌게 한다.
+  let keys = [];
+  let decoys = [];
+  const refreshKeys = () => {
+    if (!drops.length) return;
+    const need = new Set(drops.flatMap((d) => [...norm(d.w.word)].filter(isLetter)));
+    decoys = decoys.filter((c) => !need.has(c));
+    const want = Math.max(RAIN_DECOYS, RAIN_MIN_KEYS - need.size);
+    const rest = shuffle(ABC.filter((c) => !need.has(c) && !decoys.includes(c)));
+    while (decoys.length < want && rest.length) decoys.push(rest.pop());
+    decoys = decoys.slice(0, want);
+    const next = [...need, ...decoys].sort();
+    if (next.join('') === keys.join('')) return;
+    const old = new Set(keys);
+    keys = next;
+    $keys.style.setProperty('--cols', keys.length + 2 <= 12 ? 6 : 7);
+    $keys.innerHTML =
+      keys
+        .map((c) => `<button type="button" class="r-key${old.has(c) ? '' : ' new'}" data-k="${c}">${c.toUpperCase()}</button>`)
+        .join('') + `<button type="button" class="r-key r-back" data-k="back" aria-label="지우기">⌫</button>`;
+    fit();
+  };
 
   // 화면 높이에 맞춰 하늘 크기 조절 (아래 키패드까지 한 화면에 보이게)
   const fit = () => {
@@ -664,6 +689,7 @@ export function playRain(ctx) {
     const d = { w, el, lane, y: -el.offsetHeight, h: el.offsetHeight, hinted: false };
     el.style.transform = `translate(-50%, ${d.y}px)`;
     drops.push(d);
+    refreshKeys();
     return true;
   };
 
@@ -699,6 +725,7 @@ export function playRain(ctx) {
     let gain = 10 + letters + Math.min(40, combo >= 2 ? (combo - 1) * 4 : 0);
     if (d.hinted) gain = Math.round(gain / 2);
     score += gain;
+    refreshKeys();
     d.el.classList.add('boom');
     d.el.querySelector('.r-mean').textContent = d.w.word;
     sparkle(d.el.querySelector('.r-rock'), d.el.style.getPropertyValue('--c1'), 14);
@@ -724,6 +751,7 @@ export function playRain(ctx) {
       typed = '';
       $typedText.textContent = '';
     }
+    refreshKeys();
     lives--;
     combo = 0;
     missed.set(d.w.id, d.w);
@@ -791,7 +819,7 @@ export function playRain(ctx) {
       showStats();
     }
     lockUntil = performance.now() + RAIN_LOCK * 1000;
-    for (const el of [b, $typed]) {
+    for (const el of [b, $typed].filter(Boolean)) {
       el.classList.remove('wrong');
       void el.offsetWidth;
       el.classList.add('wrong');
@@ -799,7 +827,7 @@ export function playRain(ctx) {
     $pad.classList.add('locked');
     setTimeout(() => {
       $pad.classList.remove('locked');
-      b.classList.remove('wrong');
+      b?.classList.remove('wrong');
       $typed.classList.remove('wrong');
     }, RAIN_LOCK * 1000);
   };
@@ -830,8 +858,8 @@ export function playRain(ctx) {
     if (!k) return;
     e.preventDefault();
     const b = $pad.querySelector(`[data-k="${k}"]`);
-    b.classList.add('press');
-    setTimeout(() => b.classList.remove('press'), 120);
+    b?.classList.add('press');
+    setTimeout(() => b?.classList.remove('press'), 120);
     press(k, b);
   };
   document.addEventListener('keydown', onKey);

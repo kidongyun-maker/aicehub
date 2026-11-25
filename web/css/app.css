@@ -800,18 +800,20 @@ body.game-mode .app { user-select: none; -webkit-user-select: none; }
 .r-typed.wrong { animation: g-shake .4s; border-color: #ff5a5f; }
 .r-caret { width: 2px; height: 24px; margin-left: 2px; background: #a5b4ff; animation: r-caret 1s steps(1) infinite; }
 @keyframes r-caret { 50% { opacity: 0; } }
-.r-keys { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.r-keys { display: grid; grid-template-columns: repeat(var(--cols, 6), 1fr); gap: 6px; min-height: 102px; align-content: start; }
 .r-key {
-  height: 42px; padding: 0; border-radius: 11px; cursor: pointer; touch-action: manipulation;
-  font: inherit; font-size: 19px; font-weight: 800; color: #fff;
+  height: 48px; padding: 0; border-radius: 12px; cursor: pointer; touch-action: manipulation;
+  font: inherit; font-size: 21px; font-weight: 800; color: #fff;
   -webkit-tap-highlight-color: transparent; user-select: none;
   background: linear-gradient(180deg, #3b3290, #261d6b); border: 2px solid #7b91ff88;
   box-shadow: 0 3px 0 #15104a;
 }
 .r-key:active, .r-key.press { transform: translateY(2px); box-shadow: 0 1px 0 #15104a; background: linear-gradient(180deg, #5b50d0, #3a2d9e); }
 .r-key.r-back { grid-column: span 2; background: linear-gradient(180deg, #6b4a8f, #4a2f6b); font-size: 20px; }
+.r-key.new { animation: r-new .3s; }
+@keyframes r-new { from { transform: scale(.6); opacity: 0; } }
 .r-key.wrong { animation: g-shake .4s; background: linear-gradient(160deg, #ff8a8d, #e5383b); border-color: #fff; }
-@media (min-width: 560px) { .r-key { height: 48px; font-size: 20px; } }
+@media (min-width: 560px) { .r-key { height: 52px; font-size: 22px; } }
 
 /* ---------- 4. 보스 배틀 ---------- */
 .b-arena {
