@@ -88,6 +88,8 @@ AI에게 **https://aicehub.com/api** 주소를 알려 주고 "이 사진 단어�
 
 - **POST API**: `POST {SUPABASE_URL}/rest/v1/rpc/api_add_words`, 헤더 `apikey`(publishable 키), 본문 `{"code":"9585","title":"3과 단어","words":[{"word":"apple","meaning":"사과"}]}` → 새 단어장 링크를 돌려줌. 번호당 1시간 30개 제한.
   - 처음 한 번 `supabase/migrations/003_api.sql` 을 SQL Editor에서 실행해야 합니다.
+
+> 뜻 직접 쓰기에서 '거의 맞은 답 인정'을 쓰려면 `supabase/migrations/004_near_accept.sql` 을 SQL Editor에서 한 번 실행합니다.
 - **가져오기 링크**: POST를 못 보내는 채팅 AI용. `https://aicehub.com/#/new?t=제목&w=apple=사과|look after=~을 돌보다` 를 열면 단어가 채워진 편집 화면이 열리고, 확인 후 저장합니다 (로그인 안 돼 있으면 로그인 후 그 화면으로 돌아옴).
 - 설명서 파일: `web/api/index.html`, `web/api/openapi.json`(ChatGPT GPTs 액션용), `web/llms.txt`.
 - 보안: 번호만 알면 단어장을 추가할 수 있습니다(로그인과 같은 가족용 수준). 단어장 추가만 되고, 조회·수정·삭제는 API로 할 수 없습니다.

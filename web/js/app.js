@@ -32,6 +32,72 @@ function meaningMatches(answer, meaning) {
   return parts(answer).some((a) => means.some((m) => a === m || a + '하다' === m || a === m + '하다'));
 }
 
+// 거의 맞은 답 - DB 함수 meaning_similar 와 같은 규칙
+// 뜻 하나와 글자가 60% 이상 겹치면 '거의 맞음' → 아이가 정답과 비교해 보고 직접 인정할 수 있다.
+// (자동 정답 처리는 하지 않는다: '가능한'↔'불가능한' 처럼 글자는 겹쳐도 뜻이 반대인 경우가 있어서)
+const NEAR_RATE = 0.6;
+function textSimilarity(a, b) {
+  if (!a || !b) return 0;
+  const count = new Map();
+  for (const c of a) count.set(c, (count.get(c) || 0) + 1);
+  let same = 0;
+  for (const c of b) {
+    if (count.get(c) > 0) {
+      same++;
+      count.set(c, count.get(c) - 1);
+    }
+  }
+  return same / Math.max([...a].length, [...b].length);
+}
+function meaningSimilar(answer, meaning) {
+  const strip = (t) => t.replace(/[\s~·.,!?'"()[\]-]/g, '').toLowerCase();
+  const forms = (t) => [strip(t), strip(t.replace(/\([^)]*\)/g, ''))];
+  const parts = (t) => String(t ?? '').split(/[,;/]/).flatMap(forms).filter(Boolean);
+  const means = parts(meaning);
+  return parts(answer).some((a) => [...a].length >= 2 && means.some((m) => textSimilarity(a, m) >= NEAR_RATE));
+}
+
+// ---------- 하던 단계 이어서 하기 (이 기기에 저장) ----------
+
+const runKey = (id, step, retryId) => `progress:${state.me?.code}:${id}:${step}:${retryId || 'full'}`;
+function loadRun(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    return null;
+  }
+}
+function saveRun(key, data) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ...data, savedAt: new Date().toISOString() }));
+  } catch {}
+}
+function clearRun(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {}
+}
+
+// 이어서 할지 물어보는 화면. true = 이어서, false = 처음부터
+function askResume(title, done, total, savedAt) {
+  return new Promise((resolve) => {
+    window.onkeydown = null;
+    $app.innerHTML = `
+      ${topbar(title, { back: location.hash.replace(/^#/, '').replace(/\/(run|learn).*$/, '') })}
+      <div class="card score">
+        <div style="font-size:48px">📌</div>
+        <div class="verdict">지난번에 하던 게 있어요</div>
+        <p class="muted">${done}/${total} 까지 했어요 · ${esc(fmtDate(savedAt))}</p>
+      </div>
+      <div class="runner-actions">
+        <button class="btn" id="fresh">처음부터</button>
+        <button class="btn primary" id="resume">이어서 하기 →</button>
+      </div>`;
+    document.getElementById('resume').onclick = () => resolve(true);
+    document.getElementById('fresh').onclick = () => resolve(false);
+  });
+}
+
 // ---------- 유틸 ----------
 
 const esc = (s) =>
@@ -819,8 +885,11 @@ async function viewSet({ params: [id], query, isCurrent }) {
   const stepRow = (key) => {
     const info = STEP_INFO[key];
     const cls = st.done[key] ? 'done' : st.current === key ? 'current' : '';
-    const href = key === 'learn' ? `#/set/${id}/learn` : `#/set/${id}/run/${key}`;
-    const label = st.done[key] || summary[key] ? '다시' : '시작';
+    const href = stepHref(id, key);
+    const saved = isSelf ? loadRun(runKey(id, key)) : null;
+    const savedDone = saved ? (key === 'learn' ? saved.learned : saved.answers?.length) : 0;
+    const savedTotal = saved ? (key === 'learn' ? saved.total : saved.questions?.length) : 0;
+    const label = savedDone ? `이어서 ${savedDone}/${savedTotal}` : st.done[key] || summary[key] ? '다시' : '시작';
     return `
       <div class="card step ${cls}">
         <div class="num">${st.done[key] ? '✓' : info.no}</div>
@@ -829,7 +898,7 @@ async function viewSet({ params: [id], query, isCurrent }) {
           <div class="desc">${esc(stepDesc(key))}</div>
         </div>
         ${
-          isSelf ? `<a class="btn small ${st.current === key ? 'primary' : ''}" href="${href}">${label}</a>` : ''
+          isSelf ? `<a class="btn small ${st.current === key || savedDone ? 'primary' : ''}" href="${href}">${label}</a>` : ''
         }
       </div>`;
   };
@@ -947,6 +1016,36 @@ async function viewGame({ params: [id, game], isCurrent }) {
   (game === 'match' ? playMatch : playSpell)(ctx);
 }
 
+// ---------- 단계 이동 바 (진행 화면 위) ----------
+// 원하는 단계를 눌러 바로 이동하거나, '다음 단계 ⏭'으로 지금 단계를 건너뛴다.
+
+const stepHref = (id, key) => (key === 'learn' ? `#/set/${id}/learn` : `#/set/${id}/run/${key}`);
+
+function stepBar(id, current) {
+  const i = STEP_ORDER.indexOf(current);
+  const nextKey = STEP_ORDER[i + 1];
+  return `
+    <div class="step-bar">
+      <div class="step-pills">
+        ${STEP_ORDER.map(
+          (k) => `<a class="step-pill ${k === current ? 'on' : ''}" href="${stepHref(id, k)}" data-step-jump
+            title="${STEP_INFO[k].no}단계 ${STEP_INFO[k].name}">${NUM[STEP_INFO[k].no]} ${STEP_INFO[k].short}</a>`
+        ).join('')}
+      </div>
+      ${nextKey ? `<a class="btn small" href="${stepHref(id, nextKey)}" data-step-jump>다음 단계 ⏭</a>` : ''}
+    </div>`;
+}
+
+// isDirty(): 푼 문제가 있으면 이동 전에 확인
+function bindStepBar(isDirty = () => false) {
+  document.querySelectorAll('[data-step-jump]').forEach((a) => {
+    a.onclick = (e) => {
+      if (a.classList.contains('on')) return e.preventDefault();
+      if (isDirty() && !confirm('다른 단계로 갈까요?')) e.preventDefault();
+    };
+  });
+}
+
 // ---------- 1단계: 단어 암기 (플래시카드) ----------
 
 async function viewLearn({ params: [id], isCurrent }) {
@@ -957,7 +1056,22 @@ async function viewLearn({ params: [id], isCurrent }) {
   let learned = 0;
   let flipped = false;
 
+  // 하다 만 암기 이어서 하기
+  const key = runKey(id, 'learn');
+  const saved = loadRun(key);
+  const byId = new Map(set.words.map((w) => [w.id, w]));
+  if (saved && saved.total === total && saved.learned > 0 && saved.queue?.length && saved.queue.every((wid) => byId.has(wid))) {
+    const resume = await askResume(set.title, saved.learned, total, saved.savedAt);
+    if (!isCurrent()) return;
+    if (resume) {
+      queue = saved.queue.map((wid) => byId.get(wid));
+      learned = saved.learned;
+    } else clearRun(key);
+  } else if (saved) clearRun(key);
+  const persist = () => saveRun(key, { queue: queue.map((w) => w.id), learned, total });
+
   const finish = async () => {
+    clearRun(key);
     await db.markLearned(id, total);
     if (!isCurrent()) return;
     $app.innerHTML = `
@@ -978,6 +1092,7 @@ async function viewLearn({ params: [id], isCurrent }) {
     const w = queue[0];
     flipped = false;
     $app.innerHTML = `
+      ${stepBar(id, 'learn')}
       <div class="runner-top">
         <a class="btn icon ghost" href="#/set/${id}" aria-label="그만하기">✕</a>
         <div class="progress"><div style="width:${(learned / total) * 100}%"></div></div>
@@ -1002,6 +1117,7 @@ async function viewLearn({ params: [id], isCurrent }) {
         <button class="btn good" id="ok">✓ 외웠어요</button>
       </div>
       <p class="center small muted" style="margin-top:12px">'한 번 더'를 누르면 뒤에 다시 나와요</p>`;
+    bindStepBar();
     const $card = document.getElementById('card');
     const flip = () => {
       flipped = !flipped;
@@ -1014,13 +1130,17 @@ async function viewLearn({ params: [id], isCurrent }) {
     document.getElementById('say').onclick = () => speak(w.word);
     document.getElementById('again').onclick = () => {
       queue.push(queue.shift());
+      persist();
       draw();
     };
     document.getElementById('ok').onclick = () => {
       queue.shift();
       learned++;
       if (queue.length === 0) finish();
-      else draw();
+      else {
+        persist();
+        draw();
+      }
     };
     window.onkeydown = (e) => {
       if (e.key === ' ') {
@@ -1066,17 +1186,48 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
   const types = step === 'final'
     ? shuffle(words.map((_, i) => (i % 2 === 0 ? 'meaning' : 'spell')))
     : words.map(() => TYPE_OF[step]);
-  const questions = shuffle(words).map((w, i) => ({
+  let questions = shuffle(words).map((w, i) => ({
     word: w,
     type: types[i],
     options: types[i] === 'meaning' ? buildOptions(w, set, extraMeanings) : null,
   }));
 
-  const answers = [];
+  let answers = [];
   let idx = 0;
+
+  // 하다 만 시험 이어서 하기 (같은 단어 목록일 때만)
+  const key = runKey(id, step, mode === 'retry' ? query.retry : null);
+  const saved = loadRun(key);
+  const byId = new Map(words.map((w) => [w.id, w]));
+  const savedOk =
+    saved?.questions?.length === words.length &&
+    saved.answers?.length > 0 &&
+    saved.answers.length <= saved.questions.length &&
+    saved.questions.every((q) => byId.has(q.wordId)) &&
+    new Set(saved.questions.map((q) => q.wordId)).size === words.length;
+  if (savedOk) {
+    const resume = await askResume(set.title, saved.answers.length, saved.questions.length, saved.savedAt);
+    if (!isCurrent()) return;
+    if (resume) {
+      questions = saved.questions.map((q) => {
+        const w = byId.get(q.wordId);
+        // 그 사이 뜻이 바뀌었으면 보기를 새로 만든다
+        const options = q.type !== 'meaning' ? null : q.options?.includes(w.meaning) ? q.options : buildOptions(w, set, extraMeanings);
+        return { word: w, type: q.type, options };
+      });
+      answers = saved.answers;
+      idx = answers.length;
+    } else clearRun(key);
+  } else if (saved) clearRun(key);
+  const persist = () =>
+    saveRun(key, {
+      questions: questions.map((q) => ({ wordId: q.word.id, type: q.type, options: q.options })),
+      answers,
+    });
   const title = `${STEP_INFO[step].no}단계 · ${STEP_INFO[step].name}${mode === 'retry' ? ' (틀린 것 다시)' : ''}`;
 
   const header = () => `
+    ${mode === 'full' ? stepBar(id, step) : ''}
     <div class="runner-top">
       <button class="btn icon ghost" id="quit" aria-label="그만하기">✕</button>
       <div class="progress"><div style="width:${(idx / questions.length) * 100}%"></div></div>
@@ -1084,8 +1235,9 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
     </div>`;
 
   const bindQuit = () => {
+    bindStepBar();
     document.getElementById('quit').onclick = () => {
-      if (answers.length === 0 || confirm('그만할까요? 지금까지 푼 내용은 저장되지 않아요.')) go(`/set/${id}`);
+      go(`/set/${id}`); // 푼 내용은 저장돼 있어서 나중에 이어서 할 수 있다
     };
   };
 
@@ -1099,6 +1251,7 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
     $app.innerHTML = loading('채점 중...');
     try {
       const { attempt } = await db.submitAttempt(id, { step, mode, answers });
+      clearRun(key);
       if (!isCurrent()) return;
       go(`/set/${id}/result/${attempt.id}`);
     } catch (err) {
@@ -1118,14 +1271,16 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
       <div class="options">
         ${q.options.map((o, i) => `<button class="option" data-i="${i}"><span class="n">${i + 1}</span><span>${esc(o)}</span></button>`).join('')}
       </div>
+      <div class="runner-actions" id="skipRow"><button class="btn" id="skip">모르겠어요 (건너뛰기)</button></div>
       <div id="fb"></div>`;
     bindQuit();
     document.getElementById('say').onclick = () => speak(q.word.word);
     speak(q.word.word);
     const buttons = [...document.querySelectorAll('.option')];
+    // i = -1 이면 건너뛰기 (오답 처리)
     const choose = (i) => {
       if (buttons[0].disabled) return;
-      const picked = q.options[i];
+      const picked = i >= 0 ? q.options[i] : '';
       const correct = picked === q.word.meaning;
       answers.push({ wordId: q.word.id, type: 'meaning', answer: picked });
       buttons.forEach((b, j) => {
@@ -1133,9 +1288,11 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
         if (q.options[j] === q.word.meaning) b.classList.add('correct');
         else if (j === i) b.classList.add('wrong');
       });
+      document.getElementById('skipRow').remove();
       showFeedback(correct, `${q.word.word} = ${q.word.meaning}`);
     };
     buttons.forEach((b) => (b.onclick = () => choose(Number(b.dataset.i))));
+    document.getElementById('skip').onclick = () => choose(-1);
     window.onkeydown = (e) => {
       const n = Number(e.key);
       if (n >= 1 && n <= q.options.length) choose(n - 1);
@@ -1181,6 +1338,7 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
       <div class="row" style="justify-content:center">
         <button class="btn small" id="back">⌫ 지우기</button>
         <button class="btn small" id="reset">처음부터</button>
+        <button class="btn small" id="skip">모르겠어요 (건너뛰기)</button>
       </div>
       <div id="fb"></div>`;
     bindQuit();
@@ -1194,9 +1352,17 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
       const correct = answer.toLowerCase() === target.toLowerCase();
       answers.push({ wordId: q.word.id, type: 'spell', answer });
       document.getElementById('slots').innerHTML = slotsHtml(correct ? 'correct' : 'wrong');
-      document.querySelectorAll('.tile, #back, #reset').forEach((b) => (b.disabled = true));
+      document.querySelectorAll('.tile, #back, #reset, #skip').forEach((b) => (b.disabled = true));
       speak(target);
       showFeedback(correct, target);
+    };
+    // 건너뛰기: 빈 답으로 제출 (오답 처리)
+    document.getElementById('skip').onclick = () => {
+      if (answers.length > idx) return;
+      answers.push({ wordId: q.word.id, type: 'spell', answer: '' });
+      document.querySelectorAll('.tile, #back, #reset, #skip').forEach((b) => (b.disabled = true));
+      speak(target);
+      showFeedback(false, target);
     };
     const add = (i) => {
       if (picked.includes(i) || picked.length >= letters.length || answers.length > idx) return;
@@ -1224,14 +1390,29 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
     };
   };
 
-  const showFeedback = (correct, answerText) => {
+  // near: 거의 맞음 → '맞은 걸로 할게요' 버튼 (누르면 onAccept)
+  const showFeedback = (correct, answerText, { near = false, onAccept } = {}) => {
+    persist();
     const fb = document.getElementById('fb');
-    fb.innerHTML = `
+    const nextLabel = idx + 1 < questions.length ? '다음 문제 →' : '결과 보기';
+    fb.innerHTML = near
+      ? `
+      <div class="feedback near">
+        🤏 거의 맞았어요! 정답은
+        <span class="answer">${esc(answerText)}</span>
+        <div class="small" style="margin-top:6px">내 답과 뜻이 같으면 맞은 걸로 해도 돼요</div>
+      </div>
+      <div class="runner-actions">
+        <button class="btn" id="next">틀린 걸로 · ${nextLabel}</button>
+        <button class="btn good" id="accept">⭕ 맞은 걸로 할게요</button>
+      </div>`
+      : `
       <div class="feedback ${correct ? 'good' : 'bad'}">
         ${correct ? '⭕ 정답이에요!' : '❌ 틀렸어요. 정답은'}
         ${correct ? '' : `<span class="answer">${esc(answerText)}</span>`}
       </div>
-      <div class="runner-actions"><button class="btn primary" id="next">${idx + 1 < questions.length ? '다음 문제 →' : '결과 보기'}</button></div>`;
+      <div class="runner-actions"><button class="btn primary" id="next">${nextLabel}</button></div>`;
+    if (near) document.getElementById('accept').onclick = onAccept;
     const $next = document.getElementById('next');
     $next.onclick = next;
     $next.focus({ preventScroll: true });
@@ -1266,7 +1447,7 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
           voiceSupported ? '' : '이 브라우저는 🎤 음성 입력을 지원하지 않아요. 키보드의 마이크를 쓰거나, 크롬·사파리에서 열어 주세요.'
         }</div>
         <div class="runner-actions">
-          <button type="button" class="btn" id="skip">모르겠어요</button>
+          <button type="button" class="btn" id="skip">모르겠어요 (건너뛰기)</button>
           <button type="submit" class="btn primary" id="ok">확인</button>
         </div>
       </form>
@@ -1286,12 +1467,22 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
       const correct = isSpell
         ? answer.trim().replace(/\s+/g, ' ').toLowerCase() === q.word.word.trim().replace(/\s+/g, ' ').toLowerCase()
         : meaningMatches(answer, q.word.meaning);
-      answers.push({ wordId: q.word.id, type: q.type, answer });
+      const near = !correct && !isSpell && meaningSimilar(answer, q.word.meaning);
+      const item = { wordId: q.word.id, type: q.type, answer };
+      answers.push(item);
       $in.disabled = true;
-      $in.classList.add(correct ? 'correct' : 'wrong');
+      $in.classList.add(correct ? 'correct' : near ? 'near' : 'wrong');
       document.querySelectorAll('#writeForm button').forEach((b) => (b.disabled = true));
       if (isSpell) speak(q.word.word);
-      showFeedback(correct, isSpell ? q.word.word : `${q.word.word} = ${q.word.meaning}`);
+      const answerText = isSpell ? q.word.word : `${q.word.word} = ${q.word.meaning}`;
+      showFeedback(correct, answerText, {
+        near,
+        onAccept: () => {
+          item.accepted = true; // DB 에서도 '거의 맞음'인지 다시 확인한 뒤 정답으로 친다
+          $in.classList.replace('near', 'correct');
+          showFeedback(true, answerText);
+        },
+      });
     };
     document.getElementById('writeForm').onsubmit = (e) => {
       e.preventDefault();
@@ -1329,7 +1520,8 @@ async function viewRun({ params: [id, step], query, isCurrent }) {
     else if (q.type === 'spell') drawSpell(q);
     else drawWrite(q);
   };
-  draw();
+  if (idx < questions.length) draw();
+  else submit(); // 마지막 문제까지 풀고 제출 전에 나갔던 경우
 }
 
 // ---------- 결과 ----------
@@ -1362,7 +1554,7 @@ async function viewResult({ params: [id, attemptId], query, isCurrent }) {
         <div class="w">${esc(i.word)} <span class="muted" style="font-weight:400">· ${esc(i.meaning)}</span></div>
         <div class="detail">
           ${TYPE_LABEL[i.type] || '뜻 고르기'}
-          ${i.correct ? (i.type === 'meaning_write' ? ` · 쓴 답: ${esc(i.answer)}` : '') : i.answer ? ` · ${i.type?.endsWith('_write') ? '쓴' : '고른'} 답: <span class="yours">${esc(i.answer)}</span>` : ' · 모르겠어요'}
+          ${i.correct ? (i.type === 'meaning_write' ? ` · 쓴 답: ${esc(i.answer)}${i.accepted ? ' <span class="badge warn">인정</span>' : ''}` : '') : i.answer ? ` · ${i.type?.endsWith('_write') ? '쓴' : '고른'} 답: <span class="yours">${esc(i.answer)}</span>` : ' · 모르겠어요'}
         </div>
       </div>
       <button class="speak" data-say="${esc(i.word)}" aria-label="발음 듣기" style="width:36px;height:36px;font-size:16px">🔊</button>
