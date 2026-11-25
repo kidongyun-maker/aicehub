@@ -1,4 +1,4 @@
-// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(글자 블록으로 스펠링 쓰기), 보스 배틀(전체 복습)
+// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(유성마다 글자 줄에서 골라 스펠링 쓰기), 보스 배틀(전체 복습)
 // 게임 화면은 body.game-mode 로 앱과 다른 '게임' 디자인을 쓴다 (밤하늘 배경, 카드, 장난감 블록, 효과음).
 // 최고 기록은 기기(브라우저)에 저장한다 — 시험 기록과 달리 서버에 남기지 않는다.
 
@@ -544,19 +544,21 @@ const norm = (t) => String(t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 // ---------- 3. 단어 유성 막기 ----------
 // 뜻이 적힌 유성이 떨어진다. 아래 글자 키를 눌러 영어 단어를 쓰면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
-// 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 키로 쓴다. A~Z 전부가 아니라 지금 떨어지는 단어에 든 글자와
-// 가짜 글자 몇 개만 알파벳 순서로 보여 준다. 띄어쓰기·하이픈 같은 기호는 자동으로 채운다.
-// 맨 아래 유성부터 칠 필요는 없다. 떨어지는 유성 중 아무거나 먼저 써도 된다.
-// 떨어지는 어떤 단어와도 안 맞는 글자를 누르면 콤보가 끊기고 잠깐 못 누른다.
+// 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 키로 쓴다. 떨어지는 유성마다 키 한 줄씩:
+// 그 단어에 든 글자 + 가짜 글자 2개를 알파벳 순서로 보여 주고, 줄 색은 유성 색과 같다.
+// 어느 줄(유성)부터 써도 된다. 쓰는 글자는 유성 위에 f a r _ _ _ 처럼 보인다. 띄어쓰기·하이픈은 자동으로 채운다.
+// 틀린 글자를 누르면 콤보가 끊기고 그 줄만 잠깐 못 누른다.
 // 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반).
 
 const RAIN_LIVES = 3;
 const RAIN_LEVEL_EVERY = 6; // 6개 맞힐 때마다 레벨 업
 const RAIN_LANES = [17, 50, 83]; // 유성이 떨어지는 세로줄 (가로 %)
-const RAIN_LOCK = 0.6; // 틀린 글자를 누르면 잠깐(초) 못 누름
+const RAIN_MAX_DROPS = 3; // 동시에 떨어지는 유성 = 키 줄 수 최대
+const RAIN_LOCK = 0.6; // 틀린 글자를 누르면 잠깐(초) 그 줄을 못 누름
 const ABC = 'abcdefghijklmnopqrstuvwxyz'.split('');
-const RAIN_DECOYS = 2; // 키에 섞는 가짜 글자 수
-const RAIN_MIN_KEYS = 6; // 글자가 적은 단어일 때도 최소 이만큼은 키를 보여 준다
+const RAIN_DECOYS = 2; // 줄마다 섞는 가짜 글자 수
+const RAIN_MIN_KEYS = 5; // 글자가 적은 단어일 때도 최소 이만큼은 키를 보여 준다
+const RAIN_ROW_H = 52; // 키 한 줄 높이(px, 줄 간격 포함) — 하늘 크기 계산용
 const METEORS = [['#ff9f1c', '#ff5a5f'], ['#7b91ff', '#9b5de5'], ['#2ec4b6', '#3a86ff'], ['#f15bb5', '#9b5de5'], ['#ffd23f', '#ff9f1c']];
 
 export function playRain(ctx) {
@@ -570,20 +572,18 @@ export function playRain(ctx) {
   let level = 1;
   let spawned = 0;
   const missed = new Map();
-  const drops = []; // { w, el, lane, y, h, hinted }
+  const drops = []; // { w, ans, el, row, lane, y, h, hinted, typed, lockUntil }
   let running = false;
   let over = false;
   let last = 0;
   let spawnIn = 0;
   let fieldH = 400;
+  let lastTyped = null; // 실제 키보드 입력용: 마지막으로 쓰던 유성
   const GROUND = 58;
-  let typed = ''; // 지금까지 쓴 글자 (소문자, 기호 포함)
-  let lockUntil = 0;
 
   const fallSeconds = () => Math.max(4.2, 11 * Math.pow(0.91, level - 1)); // 위에서 땅까지 걸리는 시간
   const spawnGap = () => Math.max(1.2, 3.1 - (level - 1) * 0.25);
-  // 동시에 떨어지는 유성은 최대 3개 (글자 키가 너무 많아지지 않게)
-  const maxDrops = () => Math.min(set.words.length, 2 + Math.floor(level / 3), 3);
+  const maxDrops = () => Math.min(set.words.length, 2 + Math.floor(level / 3), RAIN_MAX_DROPS);
 
   $app.innerHTML = `
     ${hud(
@@ -601,53 +601,19 @@ export function playRain(ctx) {
       <div class="r-ground"><div class="r-city"></div></div>
       <div class="r-cannon" id="cannon"><i></i></div>
     </div>
-    <div class="r-pad" id="pad">
-      <div class="r-typed" id="typed"><span id="typedText"></span><i class="r-caret"></i></div>
-      <div class="r-keys" id="keys"></div>
-    </div>`;
+    <div class="r-pad" id="pad"><div class="r-wait">☄️ 유성이 오면 여기에 글자가 나와요</div></div>`;
   bindMute();
   const $field = document.getElementById('field');
   const $pad = document.getElementById('pad');
-  const $typed = document.getElementById('typed');
-  const $typedText = document.getElementById('typedText');
   const $cannon = document.getElementById('cannon');
-  const $keys = document.getElementById('keys');
-  const showTyped = () => ($typedText.textContent = typed);
 
-  // 키 만들기: 떨어지는 단어들의 글자 + 가짜 글자. 가짜 글자는 되도록 그대로 둬서 키가 덜 바뀌게 한다.
-  // 단어를 쓰는 중에는 키를 빼지 않는다 (다른 유성이 터지거나 떨어져도 누르던 키 자리가 그대로).
-  let keys = [];
-  let decoys = [];
-  const refreshKeys = () => {
-    if (!drops.length) return;
-    const need = new Set(drops.flatMap((d) => [...norm(d.w.word)].filter(isLetter)));
-    let next;
-    if (typed) next = [...new Set([...keys, ...need])].sort();
-    else {
-      decoys = decoys.filter((c) => !need.has(c));
-      const want = Math.max(RAIN_DECOYS, RAIN_MIN_KEYS - need.size);
-      const rest = shuffle(ABC.filter((c) => !need.has(c) && !decoys.includes(c)));
-      while (decoys.length < want && rest.length) decoys.push(rest.pop());
-      decoys = decoys.slice(0, want);
-      next = [...need, ...decoys].sort();
-    }
-    if (next.join('') === keys.join('')) return;
-    const old = new Set(keys);
-    keys = next;
-    $keys.style.setProperty('--cols', keys.length + 2 <= 12 ? 6 : 7);
-    $keys.innerHTML =
-      keys
-        .map((c) => `<button type="button" class="r-key${old.has(c) ? '' : ' new'}" data-k="${c}">${c.toUpperCase()}</button>`)
-        .join('') + `<button type="button" class="r-key r-back" data-k="back" aria-label="지우기">⌫</button>`;
-    fit();
-  };
-
-  // 화면 높이에 맞춰 하늘 크기 조절 (아래 키패드까지 한 화면에 보이게)
+  // 화면 높이에 맞춰 하늘 크기 조절 (키 줄이 가장 많을 때까지 한 화면에 보이게)
   const fit = () => {
     if (!isCurrent()) return window.visualViewport?.removeEventListener('resize', fit);
     const vh = window.visualViewport?.height || window.innerHeight;
     const top = $field.getBoundingClientRect().top + window.scrollY;
-    const h = Math.round(Math.min(560, Math.max(230, vh - top - $pad.offsetHeight - 24)));
+    const padH = Math.max($pad.offsetHeight, RAIN_ROW_H * Math.min(RAIN_MAX_DROPS, set.words.length));
+    const h = Math.round(Math.min(560, Math.max(230, vh - top - padH - 24)));
     if (h === fieldH) return;
     drops.forEach((d) => (d.y *= h / fieldH));
     fieldH = h;
@@ -668,13 +634,51 @@ export function playRain(ctx) {
     if (combo >= 2) c.classList.add('pop');
   };
 
-  // 첫 글자만 보여 준다: farewell party → f_______ p____ (단어 사이에서만 줄바꿈)
-  const hintOf = (word) =>
-    word
-      .trim()
-      .split(/\s+/)
-      .map((part) => [...part].map((c, i) => (i === 0 || !isLetter(c) ? c : '_')).join(''))
-      .join(' ');
+  // 유성 아래 글자 칸: 쓴 글자 + 남은 칸(_). 힌트가 나왔으면 각 단어 첫 글자도 보여 준다.
+  // farewell party → (힌트) f_______ p____ / (far 까지 씀) far_____ _____
+  const progressOf = (d) =>
+    d.ans
+      .split(' ')
+      .reduce(
+        (acc, part) => {
+          const out = [...part].map((c, i) => {
+            const at = acc.pos + i;
+            if (at < d.typed.length) return d.typed[at];
+            if (!isLetter(c) || (d.hinted && i === 0)) return c;
+            return '_';
+          });
+          acc.parts.push(out.join(''));
+          acc.pos += part.length + 1;
+          return acc;
+        },
+        { parts: [], pos: 0 }
+      )
+      .parts.join(' ');
+  const showProgress = (d) => {
+    d.el.querySelector('.r-hint').textContent = d.typed || d.hinted ? progressOf(d) : '';
+  };
+
+  // 유성 하나에 키 한 줄: 그 단어 글자 + 가짜 글자, 알파벳 순서. 마지막에 지우기 키.
+  const makeRow = (d, c1, c2) => {
+    const need = [...new Set([...d.ans].filter(isLetter))];
+    const want = Math.max(RAIN_DECOYS, RAIN_MIN_KEYS - need.length);
+    const decoys = shuffle(ABC.filter((c) => !need.includes(c))).slice(0, want);
+    const keys = [...need, ...decoys].sort();
+    const row = document.createElement('div');
+    row.className = 'r-row new';
+    row.style.cssText = `--c1:${c1};--c2:${c2};--n:${keys.length + 1 <= 10 ? keys.length + 1 : Math.ceil((keys.length + 1) / 2)}`;
+    row.innerHTML =
+      keys.map((c) => `<button type="button" class="r-key" data-k="${c}">${c.toUpperCase()}</button>`).join('') +
+      `<button type="button" class="r-key r-back" data-k="back" aria-label="지우기">⌫</button>`;
+    row._drop = d;
+    $pad.querySelector('.r-wait')?.remove();
+    $pad.appendChild(row);
+    return row;
+  };
+  const dropRow = (d) => {
+    d.row.classList.add('gone');
+    setTimeout(() => d.row.remove(), 200);
+  };
 
   const spawn = () => {
     // 빈 줄 고르기: 막 떨어지기 시작한 유성이 있는 줄은 피한다
@@ -682,7 +686,7 @@ export function playRain(ctx) {
     if (!free.length) return false;
     // 지금 떨어지는 것과 같은 단어는 고르지 않는다
     if (!queue.length) queue = shuffle(set.words);
-    const k = queue.findIndex((w) => !drops.some((d) => norm(d.w.word) === norm(w.word)));
+    const k = queue.findIndex((w) => !drops.some((d) => d.ans === norm(w.word)));
     if (k < 0) return false;
     const [w] = queue.splice(k, 1);
     const lane = free[Math.floor(Math.random() * free.length)];
@@ -692,16 +696,18 @@ export function playRain(ctx) {
     el.style.cssText = `left:${RAIN_LANES[lane]}%;--c1:${c1};--c2:${c2}`;
     el.innerHTML = `<div class="r-tail"></div><div class="r-rock"><span class="r-mean">${esc(w.meaning)}</span><span class="r-hint"></span></div>`;
     $field.appendChild(el);
-    const d = { w, el, lane, y: -el.offsetHeight, h: el.offsetHeight, hinted: false };
+    const d = { w, ans: norm(w.word), el, lane, y: -el.offsetHeight, h: el.offsetHeight, hinted: false, typed: '', lockUntil: 0 };
+    d.row = makeRow(d, c1, c2);
     el.style.transform = `translate(-50%, ${d.y}px)`;
     drops.push(d);
-    refreshKeys();
     return true;
   };
 
   const removeDrop = (d) => {
     const i = drops.indexOf(d);
     if (i >= 0) drops.splice(i, 1);
+    dropRow(d);
+    if (lastTyped === d) lastTyped = null;
   };
 
   const laser = (d) => {
@@ -731,9 +737,9 @@ export function playRain(ctx) {
     let gain = 10 + letters + Math.min(40, combo >= 2 ? (combo - 1) * 4 : 0);
     if (d.hinted) gain = Math.round(gain / 2);
     score += gain;
-    refreshKeys();
     d.el.classList.add('boom');
     d.el.querySelector('.r-mean').textContent = d.w.word;
+    d.el.querySelector('.r-hint').textContent = '';
     sparkle(d.el.querySelector('.r-rock'), d.el.style.getPropertyValue('--c1'), 14);
     floatAt(d.el.querySelector('.r-rock'), `+${gain}`, 'good');
     setTimeout(() => d.el.remove(), 420);
@@ -752,12 +758,6 @@ export function playRain(ctx) {
 
   const crash = (d) => {
     removeDrop(d);
-    // 쓰던 단어의 유성이 떨어졌으면 쓴 글자를 비운다
-    if (typed && !drops.some((x) => norm(x.w.word).startsWith(typed))) {
-      typed = '';
-      $typedText.textContent = '';
-    }
-    refreshKeys();
     lives--;
     combo = 0;
     missed.set(d.w.id, d.w);
@@ -789,8 +789,9 @@ export function playRain(ctx) {
       d.y += v * dt;
       if (!d.hinted && d.y + d.h > ground * 0.55) {
         d.hinted = true;
-        d.el.querySelector('.r-hint').textContent = hintOf(d.w.word);
+        showProgress(d);
         d.el.classList.add('hinted');
+        d.row.classList.add('hinted');
       }
       if (d.y + d.h >= ground) crash(d);
       else d.el.style.transform = `translate(-50%, ${d.y}px)`;
@@ -798,76 +799,61 @@ export function playRain(ctx) {
     requestAnimationFrame(frame);
   };
 
-  // 쓰고 있는 글자로 시작하는 유성들 (정답 철자는 소문자·공백 하나로 맞춰 비교)
-  const targets = (t) => drops.filter((d) => norm(d.w.word).startsWith(t));
-  // 다음 글자가 기호(띄어쓰기, -, ' 등)뿐이면 자동으로 채운다
-  const autoFill = () => {
-    for (;;) {
-      const nexts = new Set(targets(typed).map((d) => norm(d.w.word)[typed.length]).filter((c) => c !== undefined));
-      if (nexts.size !== 1) return;
-      const [c] = nexts;
-      if (isLetter(c)) return;
-      typed += c;
-    }
-  };
-  // 쓴 단어가 유성의 정답과 같아지면 바로 발사. 여러 개면 가장 아래 것부터.
-  const tryFire = () => {
-    const d = drops.filter((x) => norm(x.w.word) === typed).sort((p, q) => q.y - p.y)[0];
-    if (!d) return false;
-    typed = '';
-    fire(d);
-    return true;
-  };
-  const wrongKey = (b) => {
+  const wrongKey = (d, b) => {
     sfx('bad');
     if (combo) {
       combo = 0;
       showStats();
     }
-    lockUntil = performance.now() + RAIN_LOCK * 1000;
-    for (const el of [b, $typed].filter(Boolean)) {
-      el.classList.remove('wrong');
-      void el.offsetWidth;
-      el.classList.add('wrong');
-    }
-    $pad.classList.add('locked');
+    d.lockUntil = performance.now() + RAIN_LOCK * 1000;
+    b.classList.remove('wrong');
+    void b.offsetWidth;
+    b.classList.add('wrong');
+    d.row.classList.add('locked');
+    d.el.querySelector('.r-rock').classList.add('miss');
     setTimeout(() => {
-      $pad.classList.remove('locked');
-      b?.classList.remove('wrong');
-      $typed.classList.remove('wrong');
+      d.row.classList.remove('locked');
+      b.classList.remove('wrong');
+      d.el.querySelector('.r-rock').classList.remove('miss');
     }, RAIN_LOCK * 1000);
   };
-  const press = (k, b) => {
-    if (!running || performance.now() < lockUntil) return;
+  // 유성 d 의 줄에서 글자 k 를 눌렀다
+  const press = (d, k, b) => {
+    if (!running || !drops.includes(d) || performance.now() < d.lockUntil) return;
+    lastTyped = d;
     if (k === 'back') {
       // 자동으로 채운 기호까지 한 번에 지운다
-      typed = typed.slice(0, -1).replace(/[^a-z]+$/, '');
-      if (!typed) refreshKeys(); // 다 지우면 그동안 미뤄 둔 키 정리
-      return showTyped();
+      d.typed = d.typed.slice(0, -1).replace(/[^a-z]+$/, '');
+      return showProgress(d);
     }
-    const next = typed + k;
-    // 떨어지는 단어 중 이렇게 시작하는 게 없으면 실수
-    if (!targets(next).length) return wrongKey(b);
+    if (d.ans[d.typed.length] !== k) return wrongKey(d, b);
     sfx('tap');
-    typed = next;
-    if (!tryFire()) autoFill();
-    showTyped();
+    d.typed += k;
+    // 다음 글자가 기호(띄어쓰기, -, ' 등)면 자동으로 채운다
+    while (d.typed.length < d.ans.length && !isLetter(d.ans[d.typed.length])) d.typed += d.ans[d.typed.length];
+    if (d.typed === d.ans) fire(d);
+    else showProgress(d);
   };
   $pad.onclick = (e) => {
     const b = e.target.closest('.r-key');
-    if (b) press(b.dataset.k, b);
+    const row = b?.closest('.r-row');
+    if (row?._drop) press(row._drop, b.dataset.k, b);
   };
-  // 컴퓨터에서는 실제 키보드로도 칠 수 있다
+  // 컴퓨터에서는 실제 키보드로도 칠 수 있다: 쓰던 유성에 이어 쓰고, 아니면 그 글자로 시작하는 가장 아래 유성
   const onKey = (e) => {
     if (!isCurrent()) return document.removeEventListener('keydown', onKey);
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || !running) return;
     const k = e.key === 'Backspace' ? 'back' : e.key.length === 1 && isLetter(e.key) ? e.key.toLowerCase() : null;
     if (!k) return;
     e.preventDefault();
-    const b = $pad.querySelector(`[data-k="${k}"]`);
-    b?.classList.add('press');
-    setTimeout(() => b?.classList.remove('press'), 120);
-    press(k, b);
+    let d = lastTyped && drops.includes(lastTyped) && lastTyped.typed ? lastTyped : null;
+    if (!d && k !== 'back') d = drops.filter((x) => !x.typed && x.ans[0] === k).sort((p, q) => q.y - p.y)[0];
+    d ||= [...drops].sort((p, q) => q.y - p.y)[0];
+    if (!d) return;
+    const b = d.row.querySelector(`[data-k="${k}"]`) || d.row.querySelector('.r-back');
+    b.classList.add('press');
+    setTimeout(() => b.classList.remove('press'), 120);
+    press(d, k, b);
   };
   document.addEventListener('keydown', onKey);
 
