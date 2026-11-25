@@ -4,7 +4,7 @@ import { recognizeWords, mergePages, EDGE_ROWS } from './ocr.js?v=__V__';
 import { AI_EXTRACT_ENABLED } from './config.js?v=__V__';
 import { voiceSupported, listen, toSpelling } from './voice.js?v=__V__';
 import { loadDict, checkWord } from './spell.js?v=__V__';
-import { GAMES, getRecord, recordText, playMatch, playSpell } from './games.js?v=__V__';
+import { GAMES, getRecord, recordText, playMatch, playSpell, playRain, playBoss } from './games.js?v=__V__';
 import { viewMathHome, viewMathList, viewMathDetail } from './math.js?v=__V__';
 
 const $app = document.getElementById('app');
@@ -253,7 +253,7 @@ const routes = [
   [/^\/set\/([a-f0-9-]{36})\/learn$/, viewLearn],
   [/^\/set\/([a-f0-9-]{36})\/run\/(quiz|spell|meaning_write|spell_write|final)$/, viewRun],
   [/^\/set\/([a-f0-9-]{36})\/result\/([a-f0-9-]{36})$/, viewResult],
-  [/^\/set\/([a-f0-9-]{36})\/game\/(match|spell)$/, viewGame],
+  [/^\/set\/([a-f0-9-]{36})\/game\/(match|spell|rain|boss)$/, viewGame],
 ];
 
 // 수학 공식 화면에 넘겨줄 것들
@@ -268,7 +268,8 @@ async function render() {
   window.onkeydown = null;
   // 게임 화면 디자인·효과는 게임에서만
   document.body.classList.remove('game-mode');
-  document.querySelectorAll('.g-countdown, .g-banner, .g-confetti, .g-spark, .g-float').forEach((el) => el.remove());
+  document.body.classList.remove('b-flash');
+  document.querySelectorAll('.g-countdown, .g-banner, .g-confetti, .g-spark, .g-float, .b-shot').forEach((el) => el.remove());
 
   const route = routes.find(([re]) => re.test(path));
   const isPublic = Boolean(route?.[2]?.public);
@@ -1013,7 +1014,7 @@ async function viewGame({ params: [id, game], isCurrent }) {
   }
   document.body.classList.add('game-mode');
   const ctx = { $app, set, id, game, esc, shuffle, speak, isCurrent, code: state.me.code, restart: () => render() };
-  (game === 'match' ? playMatch : playSpell)(ctx);
+  ({ match: playMatch, spell: playSpell, rain: playRain, boss: playBoss })[game](ctx);
 }
 
 // ---------- 단계 이동 바 (진행 화면 위) ----------
