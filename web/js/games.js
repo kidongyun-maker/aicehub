@@ -1,11 +1,11 @@
-// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(뜻 보고 단어 고르기), 보스 배틀(전체 복습)
+// 단어 게임 4가지: 짝 맞추기 타임어택(뜻), 철자 블록 러시(스펠링), 단어 유성 막기(알파벳 키로 스펠링 쓰기), 보스 배틀(전체 복습)
 // 게임 화면은 body.game-mode 로 앱과 다른 '게임' 디자인을 쓴다 (밤하늘 배경, 카드, 장난감 블록, 효과음).
 // 최고 기록은 기기(브라우저)에 저장한다 — 시험 기록과 달리 서버에 남기지 않는다.
 
 export const GAMES = {
   match: { name: '짝 맞추기 타임어택', short: '짝 맞추기', icon: '🃏', desc: '영어와 뜻 카드의 짝을 빨리 찾아요' },
   spell: { name: '철자 블록 러시', short: '철자 블록', icon: '🧱', desc: '60초 동안 철자를 최대한 많이 맞혀요' },
-  rain: { name: '단어 유성 막기', short: '유성 막기', icon: '☄️', desc: '떨어지는 뜻을 보고 아래 영어 단어를 눌러 막아요' },
+  rain: { name: '단어 유성 막기', short: '유성 막기', icon: '☄️', desc: '떨어지는 뜻을 보고 알파벳을 눌러 단어를 써서 막아요' },
   boss: { name: '보스 배틀', short: '보스 배틀', icon: '⚔️', desc: '단어장 전체로 보스를 물리쳐요' },
 };
 
@@ -543,15 +543,16 @@ const heartsHtml = (n, max) =>
 const norm = (t) => String(t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 // ---------- 3. 단어 유성 막기 ----------
-// 뜻이 적힌 유성이 떨어진다. 아래 단어판에서 맞는 영어 단어를 누르면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
-// 휴대폰 키보드가 하늘을 가리지 않도록 타이핑 대신 단어판(정답 + 가짜 단어)에서 고른다.
-// 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반). 틀린 단어를 누르면 콤보가 끊기고 잠깐 못 누른다.
+// 뜻이 적힌 유성이 떨어진다. 아래 A~Z 키를 눌러 영어 단어를 쓰면 레이저로 터뜨린다. 땅에 닿으면 하트 -1.
+// 휴대폰 키보드가 하늘을 가리지 않도록 화면 안의 알파벳 키패드로 쓴다. 띄어쓰기·하이픈 같은 기호는 자동으로 채운다.
+// 떨어지는 어떤 단어와도 안 맞는 글자를 누르면 콤보가 끊기고 잠깐 못 누른다.
+// 절반쯤 내려오면 첫 글자 힌트가 나온다 (힌트 보고 맞히면 점수 절반).
 
 const RAIN_LIVES = 3;
 const RAIN_LEVEL_EVERY = 6; // 6개 맞힐 때마다 레벨 업
 const RAIN_LANES = [17, 50, 83]; // 유성이 떨어지는 세로줄 (가로 %)
-const RAIN_BOARD = 12; // 단어판에 늘어놓는 단어 수 (3칸 × 4줄)
-const RAIN_LOCK = 0.7; // 틀리게 누르면 잠깐(초) 못 누름
+const RAIN_LOCK = 0.6; // 틀린 글자를 누르면 잠깐(초) 못 누름
+const ABC = 'abcdefghijklmnopqrstuvwxyz'.split('');
 const METEORS = [['#ff9f1c', '#ff5a5f'], ['#7b91ff', '#9b5de5'], ['#2ec4b6', '#3a86ff'], ['#f15bb5', '#9b5de5'], ['#ffd23f', '#ff9f1c']];
 
 export function playRain(ctx) {
@@ -572,10 +573,7 @@ export function playRain(ctx) {
   let spawnIn = 0;
   let fieldH = 400;
   const GROUND = 58;
-  // 단어판: 같은 철자는 한 번만. 떨어지는 유성의 정답은 항상 판에 있다.
-  const pool = [];
-  for (const w of set.words) if (!pool.some((p) => norm(p.word) === norm(w.word))) pool.push(w);
-  const board = shuffle(pool).slice(0, Math.min(RAIN_BOARD, pool.length));
+  let typed = ''; // 지금까지 쓴 글자 (소문자, 기호 포함)
   let lockUntil = 0;
 
   const fallSeconds = () => Math.max(4.2, 11 * Math.pow(0.91, level - 1)); // 위에서 땅까지 걸리는 시간
@@ -598,42 +596,27 @@ export function playRain(ctx) {
       <div class="r-ground"><div class="r-city"></div></div>
       <div class="r-cannon" id="cannon"><i></i></div>
     </div>
-    <div class="r-board" id="board"></div>`;
+    <div class="r-pad" id="pad">
+      <div class="r-typed" id="typed"><span id="typedText"></span><i class="r-caret"></i></div>
+      <div class="r-keys" id="keys">
+        ${ABC.map((c) => `<button type="button" class="r-key" data-k="${c}">${c.toUpperCase()}</button>`).join('')}
+        <button type="button" class="r-key r-back" data-k="back" aria-label="지우기">⌫</button>
+      </div>
+    </div>`;
   bindMute();
   const $field = document.getElementById('field');
-  const $board = document.getElementById('board');
+  const $pad = document.getElementById('pad');
+  const $typed = document.getElementById('typed');
+  const $typedText = document.getElementById('typedText');
   const $cannon = document.getElementById('cannon');
+  const showTyped = () => ($typedText.textContent = typed);
 
-  const slotHtml = (w, i) => `<button type="button" class="r-word" data-i="${i}" lang="en">${esc(w.word)}</button>`;
-  $board.innerHTML = board.map(slotHtml).join('');
-  const setSlot = (i, w) => {
-    board[i] = w;
-    const b = $board.children[i];
-    b.textContent = w.word;
-    b.classList.remove('new', 'wrong');
-    void b.offsetWidth;
-    b.classList.add('new');
-  };
-  const onBoard = (w) => board.some((b) => norm(b.word) === norm(w.word));
-  const isFalling = (w) => drops.some((d) => norm(d.w.word) === norm(w.word));
-  // 새 유성의 정답이 판에 없으면, 지금 떨어지지 않는 단어 칸 하나를 바꿔 넣는다
-  const putOnBoard = (w) => {
-    if (onBoard(w)) return;
-    const free = board.map((b, i) => i).filter((i) => !isFalling(board[i]));
-    if (free.length) setSlot(free[Math.floor(Math.random() * free.length)], w);
-  };
-  // 맞힌 칸은 판에 없던 다른 단어로 바꿔서 자리 외우기만으로 풀지 않게 한다
-  const refreshSlot = (i) => {
-    const rest = pool.filter((w) => !onBoard(w));
-    if (rest.length) setSlot(i, rest[Math.floor(Math.random() * rest.length)]);
-  };
-
-  // 화면 높이에 맞춰 하늘 크기 조절 (아래 단어판까지 한 화면에 보이게)
+  // 화면 높이에 맞춰 하늘 크기 조절 (아래 키패드까지 한 화면에 보이게)
   const fit = () => {
     if (!isCurrent()) return window.visualViewport?.removeEventListener('resize', fit);
     const vh = window.visualViewport?.height || window.innerHeight;
     const top = $field.getBoundingClientRect().top + window.scrollY;
-    const h = Math.round(Math.min(560, Math.max(230, vh - top - $board.offsetHeight - 24)));
+    const h = Math.round(Math.min(560, Math.max(230, vh - top - $pad.offsetHeight - 24)));
     if (h === fieldH) return;
     drops.forEach((d) => (d.y *= h / fieldH));
     fieldH = h;
@@ -671,7 +654,6 @@ export function playRain(ctx) {
     const k = queue.findIndex((w) => !drops.some((d) => norm(d.w.word) === norm(w.word)));
     if (k < 0) return false;
     const [w] = queue.splice(k, 1);
-    putOnBoard(w);
     const lane = free[Math.floor(Math.random() * free.length)];
     const [c1, c2] = METEORS[spawned++ % METEORS.length];
     const el = document.createElement('div');
@@ -737,6 +719,11 @@ export function playRain(ctx) {
 
   const crash = (d) => {
     removeDrop(d);
+    // 쓰던 단어의 유성이 떨어졌으면 쓴 글자를 비운다
+    if (typed && !drops.some((x) => norm(x.w.word).startsWith(typed))) {
+      typed = '';
+      $typedText.textContent = '';
+    }
     lives--;
     combo = 0;
     missed.set(d.w.id, d.w);
@@ -777,38 +764,84 @@ export function playRain(ctx) {
     requestAnimationFrame(frame);
   };
 
-  // 단어를 누르면 그 단어가 정답인 유성 중 가장 아래 것을 쏜다. 없으면 실수.
-  $board.onclick = (e) => {
-    const b = e.target.closest('.r-word');
-    if (!b || !running) return;
-    const now = performance.now();
-    if (now < lockUntil) return;
-    const i = Number(b.dataset.i);
-    const v = norm(board[i].word);
-    const d = drops.filter((x) => norm(x.w.word) === v).sort((p, q) => q.y - p.y)[0];
-    if (d) {
-      fire(d);
-      refreshSlot(i);
-      return;
+  // 쓰고 있는 글자로 시작하는 유성들 (정답 철자는 소문자·공백 하나로 맞춰 비교)
+  const targets = (t) => drops.filter((d) => norm(d.w.word).startsWith(t));
+  // 다음 글자가 기호(띄어쓰기, -, ' 등)뿐이면 자동으로 채운다
+  const autoFill = () => {
+    for (;;) {
+      const nexts = new Set(targets(typed).map((d) => norm(d.w.word)[typed.length]).filter((c) => c !== undefined));
+      if (nexts.size !== 1) return;
+      const [c] = nexts;
+      if (isLetter(c)) return;
+      typed += c;
     }
+  };
+  // 쓴 단어가 유성의 정답과 같아지면 바로 발사. 여러 개면 가장 아래 것부터.
+  const tryFire = () => {
+    const d = drops.filter((x) => norm(x.w.word) === typed).sort((p, q) => q.y - p.y)[0];
+    if (!d) return false;
+    fire(d);
+    typed = '';
+    return true;
+  };
+  const wrongKey = (b) => {
     sfx('bad');
     if (combo) {
       combo = 0;
       showStats();
     }
-    lockUntil = now + RAIN_LOCK * 1000;
-    b.classList.remove('wrong', 'new');
-    void b.offsetWidth;
-    b.classList.add('wrong');
-    $board.classList.add('locked');
-    setTimeout(() => $board.classList.remove('locked'), RAIN_LOCK * 1000);
+    lockUntil = performance.now() + RAIN_LOCK * 1000;
+    for (const el of [b, $typed]) {
+      el.classList.remove('wrong');
+      void el.offsetWidth;
+      el.classList.add('wrong');
+    }
+    $pad.classList.add('locked');
+    setTimeout(() => {
+      $pad.classList.remove('locked');
+      b.classList.remove('wrong');
+      $typed.classList.remove('wrong');
+    }, RAIN_LOCK * 1000);
   };
+  const press = (k, b) => {
+    if (!running || performance.now() < lockUntil) return;
+    if (k === 'back') {
+      // 자동으로 채운 기호까지 한 번에 지운다
+      typed = typed.slice(0, -1).replace(/[^a-z]+$/, '');
+      return showTyped();
+    }
+    const next = typed + k;
+    // 떨어지는 단어 중 이렇게 시작하는 게 없으면 실수
+    if (!targets(next).length) return wrongKey(b);
+    sfx('tap');
+    typed = next;
+    if (!tryFire()) autoFill();
+    showTyped();
+  };
+  $pad.onclick = (e) => {
+    const b = e.target.closest('.r-key');
+    if (b) press(b.dataset.k, b);
+  };
+  // 컴퓨터에서는 실제 키보드로도 칠 수 있다
+  const onKey = (e) => {
+    if (!isCurrent()) return document.removeEventListener('keydown', onKey);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key === 'Backspace' ? 'back' : e.key.length === 1 && isLetter(e.key) ? e.key.toLowerCase() : null;
+    if (!k) return;
+    e.preventDefault();
+    const b = $pad.querySelector(`[data-k="${k}"]`);
+    b.classList.add('press');
+    setTimeout(() => b.classList.remove('press'), 120);
+    press(k, b);
+  };
+  document.addEventListener('keydown', onKey);
 
   const finish = () => {
     if (over || !isCurrent()) return;
     over = true;
     running = false;
     window.visualViewport?.removeEventListener('resize', fit);
+    document.removeEventListener('keydown', onKey);
     const prev = getRecord(code, set.id, 'rain');
     const isBest = score > 0 && (!prev || score > prev.score);
     if (isBest) saveRecord(code, set.id, 'rain', { score, hits, level, at: Date.now() });
